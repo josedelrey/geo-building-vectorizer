@@ -29,6 +29,10 @@ targets:
   corner:
     radius: 4
     sigma: 2.0
+    source: simplified
+    simplify_tolerance: 2.0
+    min_turn_angle_degrees: 25.0
+    min_distance: 4.0
 
   center:
     radius: 5

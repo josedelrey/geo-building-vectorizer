@@ -4,6 +4,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import matplotlib
+
+if "--show" not in sys.argv:
+    matplotlib.use("Agg")
+
 import matplotlib.pyplot as plt
 import numpy as np
 import yaml
@@ -52,6 +57,12 @@ def target_config(config: dict[str, Any]) -> dict[str, Any]:
         "boundary_width": int(targets["boundary_width"]),
         "corner_radius": int(targets["corner"]["radius"]),
         "corner_sigma": float(targets["corner"]["sigma"]),
+        "corner_source": targets["corner"]["source"],
+        "corner_simplify_tolerance": float(targets["corner"]["simplify_tolerance"]),
+        "corner_min_turn_angle_degrees": float(
+            targets["corner"]["min_turn_angle_degrees"]
+        ),
+        "corner_min_distance": float(targets["corner"]["min_distance"]),
         "center_radius": int(targets["center"]["radius"]),
         "center_sigma": float(targets["center"]["sigma"]),
         "center_method": center_method,
@@ -211,6 +222,10 @@ def main() -> None:
         boundary_width=params["boundary_width"],
         corner_radius=params["corner_radius"],
         corner_sigma=params["corner_sigma"],
+        corner_source=params["corner_source"],
+        corner_simplify_tolerance=params["corner_simplify_tolerance"],
+        corner_min_turn_angle_degrees=params["corner_min_turn_angle_degrees"],
+        corner_min_distance=params["corner_min_distance"],
         center_radius=params["center_radius"],
         center_sigma=params["center_sigma"],
         normalize_offset=params["normalize_offset"],

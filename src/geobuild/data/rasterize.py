@@ -146,6 +146,183 @@ def _polygon_to_cv2_rings(
     return exterior, holes
 
 
+def _simplify_polygon_for_corners(geom: Polygon, tolerance: float) -> Polygon:
+    if tolerance <= 0.0:
+        return geom
+
+    try:
+        simplified = geom.simplify(tolerance, preserve_topology=True)
+    except (GEOSException, ValueError):
+        return geom
+
+    if not isinstance(simplified, Polygon):
+        return geom
+
+    if simplified.is_empty or not simplified.is_valid:
+        return geom
+
+    return simplified
+
+
+def _compute_turn_angle_degrees(
+    prev_point: tuple[float, float],
+    point: tuple[float, float],
+    next_point: tuple[float, float],
+) -> float:
+    incoming = np.asarray(point, dtype=np.float64) - np.asarray(
+        prev_point,
+        dtype=np.float64,
+    )
+    outgoing = np.asarray(next_point, dtype=np.float64) - np.asarray(
+        point,
+        dtype=np.float64,
+    )
+
+    incoming_norm = float(np.linalg.norm(incoming))
+    outgoing_norm = float(np.linalg.norm(outgoing))
+
+    if incoming_norm <= 1e-8 or outgoing_norm <= 1e-8:
+        return 0.0
+
+    cosine = float(np.dot(incoming, outgoing) / (incoming_norm * outgoing_norm))
+    cosine = float(np.clip(cosine, -1.0, 1.0))
+
+    return float(np.degrees(np.arccos(cosine)))
+
+
+def _dedupe_ring_points(
+    points: list[tuple[float, float]],
+) -> list[tuple[float, float]]:
+    deduped = []
+
+    for point in points:
+        if not np.isfinite(point).all():
+            continue
+
+        if (
+            deduped
+            and np.linalg.norm(np.asarray(point) - np.asarray(deduped[-1])) <= 1e-8
+        ):
+            continue
+
+        deduped.append(point)
+
+    if len(deduped) > 1:
+        first = np.asarray(deduped[0], dtype=np.float64)
+        last = np.asarray(deduped[-1], dtype=np.float64)
+
+        if np.linalg.norm(first - last) <= 1e-8:
+            deduped.pop()
+
+    return deduped
+
+
+def _is_far_enough(
+    point: tuple[float, float],
+    selected_points: list[tuple[float, float]],
+    min_distance: float,
+) -> bool:
+    if min_distance <= 0.0:
+        return True
+
+    point_array = np.asarray(point, dtype=np.float64)
+
+    for selected_point in selected_points:
+        selected_array = np.asarray(selected_point, dtype=np.float64)
+
+        if float(np.linalg.norm(point_array - selected_array)) < min_distance:
+            return False
+
+    return True
+
+
+def _select_structural_corners(
+    points: list[tuple[float, float]],
+    min_turn_angle_degrees: float,
+    min_distance: float,
+) -> list[tuple[float, float]]:
+    points = _dedupe_ring_points(points)
+
+    if len(points) == 0:
+        return []
+
+    if len(points) < 3:
+        return points
+
+    angle_by_index = []
+
+    for index, point in enumerate(points):
+        prev_point = points[index - 1]
+        next_point = points[(index + 1) % len(points)]
+        angle = _compute_turn_angle_degrees(prev_point, point, next_point)
+        angle_by_index.append((index, angle))
+
+    selected = []
+
+    for index, angle in angle_by_index:
+        point = points[index]
+
+        if angle < min_turn_angle_degrees:
+            continue
+
+        if _is_far_enough(point, selected, min_distance):
+            selected.append(point)
+
+    if selected:
+        return selected
+
+    fallback_count = min(4, len(points))
+    strongest_indices = sorted(
+        angle_by_index,
+        key=lambda item: item[1],
+        reverse=True,
+    )
+
+    for index, _ in strongest_indices:
+        point = points[index]
+
+        if _is_far_enough(point, selected, min_distance):
+            selected.append(point)
+
+        if len(selected) >= fallback_count:
+            break
+
+    if not selected:
+        selected.append(points[strongest_indices[0][0]])
+
+    return selected
+
+
+def _get_corner_points_for_polygon(
+    geom: Polygon,
+    corner_source: str,
+    simplify_tolerance: float,
+    min_turn_angle_degrees: float,
+    min_distance: float,
+) -> list[tuple[float, float]]:
+    if corner_source == "raw":
+        corner_geom = geom
+    elif corner_source == "simplified":
+        corner_geom = _simplify_polygon_for_corners(geom, simplify_tolerance)
+    else:
+        raise ValueError(
+            "Unsupported corner_source: "
+            f"{corner_source!r}. Expected 'raw' or 'simplified'."
+        )
+
+    points = [
+        (float(x), float(y))
+        for x, y in list(corner_geom.exterior.coords[:-1])
+        if np.isfinite([x, y]).all()
+    ]
+
+    return _select_structural_corners(
+        points,
+        min_turn_angle_degrees=min_turn_angle_degrees,
+        min_distance=min_distance,
+    )
+
+
 def _has_polygon_area(points: np.ndarray) -> bool:
     if len(points) < 3:
         return False
@@ -225,6 +402,10 @@ def rasterize_record(
     boundary_width: int = 3,
     corner_radius: int = 4,
     corner_sigma: float = 2.0,
+    corner_source: str = "simplified",
+    corner_simplify_tolerance: float = 2.0,
+    corner_min_turn_angle_degrees: float = 25.0,
+    corner_min_distance: float = 4.0,
     center_radius: int = 5,
     center_sigma: float = 2.5,
     normalize_offset: bool = True,
@@ -279,7 +460,15 @@ def rasterize_record(
                     thickness=int(boundary_width),
                 )
 
-            for x, y in exterior:
+            corner_points = _get_corner_points_for_polygon(
+                clipped_polygon,
+                corner_source=corner_source,
+                simplify_tolerance=corner_simplify_tolerance,
+                min_turn_angle_degrees=corner_min_turn_angle_degrees,
+                min_distance=corner_min_distance,
+            )
+
+            for x, y in corner_points:
                 _draw_gaussian(corner, float(x), float(y), corner_radius, corner_sigma)
 
             instance_center = _instance_center(instance_mask)
