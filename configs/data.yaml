@@ -22,3 +22,18 @@ splits:
 output:
   manifest_dir: data/processed/manifests
   debug_dir: data/processed/samples_debug
+
+targets:
+  boundary_width: 3
+
+  corner:
+    radius: 4
+    sigma: 2.0
+
+  center:
+    radius: 5
+    sigma: 2.5
+    method: distance_transform
+
+  offset:
+    normalize: true
