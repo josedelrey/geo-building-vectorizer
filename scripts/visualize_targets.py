@@ -186,10 +186,6 @@ def create_figure(
         offset_stride,
     )
 
-    fig.suptitle(
-        f"{record.split} | image_id={record.image_id} | polygons={len(record.polygons)}"
-    )
-
     return fig
 
 

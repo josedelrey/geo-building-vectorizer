@@ -51,9 +51,6 @@ def main() -> None:
 
         ax.plot(xs, ys, linewidth=1)
 
-    ax.set_title(
-        f"{record.split} | image_id={record.image_id} | polygons={len(record.polygons)}"
-    )
     ax.set_xlim(0, record.width)
     ax.set_ylim(record.height, 0)
     ax.axis("off")
