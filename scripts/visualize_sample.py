@@ -37,7 +37,7 @@ def main() -> None:
     image = Image.open(record.image_path).convert("RGB")
 
     fig, ax = plt.subplots(figsize=(8, 8))
-    ax.imshow(image)
+    ax.imshow(image, aspect="equal")
 
     for polygon in record.polygons:
         xs = [point[0] for point in polygon.exterior]
@@ -54,6 +54,8 @@ def main() -> None:
     ax.set_title(
         f"{record.split} | image_id={record.image_id} | polygons={len(record.polygons)}"
     )
+    ax.set_xlim(0, record.width)
+    ax.set_ylim(record.height, 0)
     ax.axis("off")
 
     if args.out:
