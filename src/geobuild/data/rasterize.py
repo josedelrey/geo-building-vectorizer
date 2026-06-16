@@ -4,7 +4,18 @@ from typing import Any
 import cv2
 import numpy as np
 
-from geobuild.data.records import ImageRecord
+try:
+    from shapely.errors import GEOSException
+    from shapely.geometry import GeometryCollection, MultiPolygon, Polygon, box
+    from shapely.validation import make_valid
+except ImportError as exc:
+    raise ImportError(
+        "Shapely is required for geometric polygon clipping in "
+        "geobuild.data.rasterize. Install it with `pip install shapely` "
+        "or add it to the project environment."
+    ) from exc
+
+from geobuild.data.records import ImageRecord, PolygonInstance
 
 
 @dataclass
@@ -27,7 +38,22 @@ class TargetBundle:
         }
 
 
-def _clip_points(
+def _finite_points(points: list[list[float]]) -> list[tuple[float, float]]:
+    if not points:
+        return []
+
+    array = np.asarray(points, dtype=np.float64)
+
+    if array.ndim != 2 or array.shape[1] != 2:
+        return []
+
+    finite = np.isfinite(array).all(axis=1)
+    array = array[finite]
+
+    return [(float(x), float(y)) for x, y in array]
+
+
+def _to_cv2_points(
     points: list[list[float]],
     width: int,
     height: int,
@@ -35,7 +61,7 @@ def _clip_points(
     if not points:
         return np.empty((0, 2), dtype=np.int32)
 
-    array = np.asarray(points, dtype=np.float32)
+    array = np.asarray(points, dtype=np.float64)
 
     if array.ndim != 2 or array.shape[1] != 2:
         return np.empty((0, 2), dtype=np.int32)
@@ -52,6 +78,74 @@ def _clip_points(
     return np.rint(array).astype(np.int32)
 
 
+def _iter_polygon_parts(geometry: object) -> list[Polygon]:
+    if isinstance(geometry, Polygon):
+        return [geometry]
+
+    if isinstance(geometry, (MultiPolygon, GeometryCollection)):
+        polygons = []
+
+        for part in geometry.geoms:
+            polygons.extend(_iter_polygon_parts(part))
+
+        return polygons
+
+    return []
+
+
+def _clip_polygon_to_tile(
+    polygon: PolygonInstance,
+    width: int,
+    height: int,
+) -> list[Polygon]:
+    exterior = _finite_points(polygon.exterior)
+
+    if len(exterior) < 3:
+        return []
+
+    holes = []
+
+    for hole in polygon.holes or []:
+        hole_points = _finite_points(hole)
+
+        if len(hole_points) >= 3:
+            holes.append(hole_points)
+
+    try:
+        geometry = Polygon(exterior, holes)
+
+        if not geometry.is_valid:
+            geometry = make_valid(geometry)
+
+        tile_box = box(0.0, 0.0, float(width), float(height))
+        clipped = geometry.intersection(tile_box)
+
+        if not clipped.is_valid:
+            clipped = make_valid(clipped)
+    except (GEOSException, ValueError):
+        return []
+
+    return [
+        part
+        for part in _iter_polygon_parts(clipped)
+        if not part.is_empty and part.area > 0.0
+    ]
+
+
+def _polygon_to_cv2_rings(
+    polygon: Polygon,
+    width: int,
+    height: int,
+) -> tuple[np.ndarray, list[np.ndarray]]:
+    exterior = _to_cv2_points(list(polygon.exterior.coords[:-1]), width, height)
+    holes = [
+        _to_cv2_points(list(interior.coords[:-1]), width, height)
+        for interior in polygon.interiors
+    ]
+
+    return exterior, holes
+
+
 def _has_polygon_area(points: np.ndarray) -> bool:
     if len(points) < 3:
         return False
@@ -64,7 +158,7 @@ def _has_polygon_area(points: np.ndarray) -> bool:
 
 def _make_instance_mask(
     exterior: np.ndarray,
-    holes: list[list[list[float]]],
+    holes: list[np.ndarray],
     width: int,
     height: int,
 ) -> np.ndarray:
@@ -73,12 +167,10 @@ def _make_instance_mask(
     cv2.fillPoly(instance_mask, [exterior.reshape((-1, 1, 2))], 1)
 
     for hole in holes:
-        clipped_hole = _clip_points(hole, width, height)
-
-        if not _has_polygon_area(clipped_hole):
+        if not _has_polygon_area(hole):
             continue
 
-        cv2.fillPoly(instance_mask, [clipped_hole.reshape((-1, 1, 2))], 0)
+        cv2.fillPoly(instance_mask, [hole.reshape((-1, 1, 2))], 0)
 
     return instance_mask
 
@@ -153,64 +245,67 @@ def rasterize_record(
     next_instance_id = 1
 
     for polygon in record.polygons:
-        exterior = _clip_points(polygon.exterior, width, height)
+        clipped_polygons = _clip_polygon_to_tile(polygon, width, height)
 
-        if not _has_polygon_area(exterior):
-            continue
+        for clipped_polygon in clipped_polygons:
+            exterior, holes = _polygon_to_cv2_rings(clipped_polygon, width, height)
 
-        instance_mask = _make_instance_mask(
-            exterior,
-            polygon.holes or [],
-            width,
-            height,
-        )
+            if not _has_polygon_area(exterior):
+                continue
 
-        if not np.any(instance_mask):
-            continue
-
-        instance_id = next_instance_id
-        next_instance_id += 1
-
-        building_pixels = instance_mask.astype(bool)
-        mask[building_pixels] = 1
-        instance[building_pixels] = instance_id
-
-        if boundary_width > 0:
-            cv2.drawContours(
-                boundary,
-                [exterior.reshape((-1, 1, 2))],
-                contourIdx=-1,
-                color=1,
-                thickness=int(boundary_width),
+            instance_mask = _make_instance_mask(
+                exterior,
+                holes,
+                width,
+                height,
             )
 
-        for x, y in exterior:
-            _draw_gaussian(corner, float(x), float(y), corner_radius, corner_sigma)
+            if not np.any(instance_mask):
+                continue
 
-        instance_center = _instance_center(instance_mask)
+            instance_id = next_instance_id
+            next_instance_id += 1
 
-        if instance_center is None:
-            continue
+            building_pixels = instance_mask.astype(bool)
+            mask[building_pixels] = 1
+            instance[building_pixels] = instance_id
 
-        center_x, center_y = instance_center
-        _draw_gaussian(
-            center,
-            float(center_x),
-            float(center_y),
-            center_radius,
-            center_sigma,
-        )
+            if boundary_width > 0:
+                cv2.drawContours(
+                    boundary,
+                    [exterior.reshape((-1, 1, 2))],
+                    contourIdx=-1,
+                    color=1,
+                    thickness=int(boundary_width),
+                )
 
-        ys, xs = np.nonzero(building_pixels)
-        offset_x = center_x - xs.astype(np.float32)
-        offset_y = center_y - ys.astype(np.float32)
+            for x, y in exterior:
+                _draw_gaussian(corner, float(x), float(y), corner_radius, corner_sigma)
 
-        if normalize_offset:
-            offset_x /= float(width)
-            offset_y /= float(height)
+            instance_center = _instance_center(instance_mask)
 
-        offset[0, ys, xs] = offset_x
-        offset[1, ys, xs] = offset_y
+            if instance_center is None:
+                continue
+
+            center_x, center_y = instance_center
+            _draw_gaussian(
+                center,
+                float(center_x),
+                float(center_y),
+                center_radius,
+                center_sigma,
+            )
+
+            ys, xs = np.nonzero(building_pixels)
+            offset_x = center_x - xs.astype(np.float32)
+            offset_y = center_y - ys.astype(np.float32)
+
+            if normalize_offset:
+                offset_x /= float(width)
+                offset_y /= float(height)
+
+            offset[0, ys, xs] = offset_x
+            offset[1, ys, xs] = offset_y
 
     return TargetBundle(
         mask=mask,
