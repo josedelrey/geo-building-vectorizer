@@ -80,9 +80,11 @@ def print_summary(record: ImageRecord, targets: TargetBundle) -> None:
         print(f"{key}: {value}")
 
 
-def draw_polygon_overlay(ax: plt.Axes, image: Image.Image, record: ImageRecord) -> None:
-    ax.imshow(image, aspect="equal")
-
+def draw_polygon_lines(
+    ax: plt.Axes,
+    record: ImageRecord,
+    color: str | None = None,
+) -> None:
     for polygon in record.polygons:
         xs = [point[0] for point in polygon.exterior]
         ys = [point[1] for point in polygon.exterior]
@@ -93,7 +95,12 @@ def draw_polygon_overlay(ax: plt.Axes, image: Image.Image, record: ImageRecord) 
         xs.append(xs[0])
         ys.append(ys[0])
 
-        ax.plot(xs, ys, linewidth=1)
+        ax.plot(xs, ys, color=color, linewidth=1)
+
+
+def draw_polygon_overlay(ax: plt.Axes, image: Image.Image, record: ImageRecord) -> None:
+    ax.imshow(image, aspect="equal")
+    draw_polygon_lines(ax, record)
 
     ax.set_title("Image + polygons")
     set_image_axes(ax, record)
@@ -114,6 +121,17 @@ def add_image_panel(
 ) -> None:
     ax.imshow(data, cmap=cmap, aspect="equal")
     ax.set_title(title)
+    set_image_axes(ax, record)
+
+
+def draw_corner_panel(
+    ax: plt.Axes,
+    targets: TargetBundle,
+    record: ImageRecord,
+) -> None:
+    ax.imshow(targets.corner, cmap="viridis", aspect="equal")
+    draw_polygon_lines(ax, record, color="white")
+    ax.set_title("Corner heatmap")
     set_image_axes(ax, record)
 
 
@@ -187,7 +205,7 @@ def create_figure(
     draw_polygon_overlay(flat_axes[0], image, record)
     add_image_panel(flat_axes[1], targets.mask, "Mask", record, cmap="gray")
     add_image_panel(flat_axes[2], targets.boundary, "Boundary", record, cmap="gray")
-    add_image_panel(flat_axes[3], targets.corner, "Corner heatmap", record)
+    draw_corner_panel(flat_axes[3], targets, record)
     add_image_panel(flat_axes[4], targets.center, "Center heatmap", record)
     draw_offset_panel(
         flat_axes[5],
