@@ -135,6 +135,17 @@ def draw_corner_panel(
     set_image_axes(ax, record)
 
 
+def draw_center_panel(
+    ax: plt.Axes,
+    targets: TargetBundle,
+    record: ImageRecord,
+) -> None:
+    ax.imshow(targets.center, cmap="viridis", aspect="equal")
+    draw_polygon_lines(ax, record, color="white")
+    ax.set_title("Center heatmap")
+    set_image_axes(ax, record)
+
+
 def offset_preview(
     targets: TargetBundle,
     width: int,
@@ -206,7 +217,7 @@ def create_figure(
     add_image_panel(flat_axes[1], targets.mask, "Mask", record, cmap="gray")
     add_image_panel(flat_axes[2], targets.boundary, "Boundary", record, cmap="gray")
     draw_corner_panel(flat_axes[3], targets, record)
-    add_image_panel(flat_axes[4], targets.center, "Center heatmap", record)
+    draw_center_panel(flat_axes[4], targets, record)
     draw_offset_panel(
         flat_axes[5],
         targets,
