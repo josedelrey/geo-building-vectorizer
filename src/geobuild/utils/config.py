@@ -58,13 +58,19 @@ def output_path_from_config(
     config: dict[str, Any],
     key: str,
     root: str | Path = PROJECT_ROOT,
+    **format_values: str,
 ) -> Path:
     output = config["output"]
 
     if key not in output:
         raise KeyError(f"Missing output config key: {key!r}")
 
-    path = Path(output[key])
+    raw_path = str(output[key])
+
+    if format_values:
+        raw_path = raw_path.format(**format_values)
+
+    path = Path(raw_path)
 
     if path.is_absolute():
         return path

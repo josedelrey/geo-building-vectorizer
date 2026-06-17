@@ -180,6 +180,7 @@ def save_preview(sample: dict[str, Any], output_path: Path) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, default="configs/data.yaml")
+    parser.add_argument("--split", type=str, default="train")
     parser.add_argument(
         "--out",
         type=str,
@@ -192,21 +193,27 @@ def main() -> None:
     args = parse_args()
     config = load_config(args.config, root=ROOT)
 
-    dataset = build_dataset(config, "train")
+    dataset = build_dataset(config, args.split)
+    print(f"Split: {args.split}")
     print(f"Dataset length: {len(dataset)}")
 
     sample = dataset[0]
     print_sample(sample)
 
-    dataloader = build_dataloader(config, "train")
+    dataloader = build_dataloader(config, args.split)
     batch = next(iter(dataloader))
     print_batch(batch)
 
-    output_path = (
-        resolve_path(args.out, root=ROOT)
-        if args.out is not None
-        else output_path_from_config(config, "dataloader_check", root=ROOT)
-    )
+    if args.out is not None:
+        output_path = resolve_path(args.out, root=ROOT)
+    else:
+        output_path = output_path_from_config(
+            config,
+            "dataloader_check",
+            root=ROOT,
+            split=args.split,
+        )
+
     save_preview(batch_sample(batch, 0), output_path)
 
 

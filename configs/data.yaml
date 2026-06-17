@@ -23,7 +23,7 @@ output:
   root: outputs
   manifest_dir: data/processed/manifests
   debug_dir: debug
-  dataloader_check: check_dataloader/dataloader_train_000.png
+  dataloader_check: check_dataloader/dataloader_{split}_000.png
 
 targets:
   boundary_width: 3
