@@ -109,13 +109,6 @@ def target_config_from_config(config: dict[str, Any]) -> dict[str, Any]:
     corner = targets["corner"]
     center = targets["center"]
     offset = targets["offset"]
-    center_method = center["method"]
-
-    if center_method != "distance_transform":
-        raise ValueError(
-            "Unsupported targets.center.method: "
-            f"{center_method!r}. Only 'distance_transform' is supported."
-        )
 
     return {
         "boundary_width": int(targets["boundary_width"]),

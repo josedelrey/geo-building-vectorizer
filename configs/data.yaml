@@ -38,7 +38,6 @@ targets:
   center:
     radius: 5
     sigma: 2.5
-    method: distance_transform
 
   offset:
     normalize: true
