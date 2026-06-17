@@ -13,6 +13,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from geobuild.data.records import ImageRecord
+from geobuild.utils.config import resolve_path
 
 
 def load_record(manifest: Path, index: int) -> ImageRecord:
@@ -31,7 +32,7 @@ def main() -> None:
     parser.add_argument("--out", type=str, default=None)
     args = parser.parse_args()
 
-    manifest = ROOT / args.manifest
+    manifest = resolve_path(args.manifest, root=ROOT)
     record = load_record(manifest, args.index)
 
     image = Image.open(record.image_path).convert("RGB")
@@ -56,7 +57,7 @@ def main() -> None:
     ax.axis("off")
 
     if args.out:
-        output_path = ROOT / args.out
+        output_path = resolve_path(args.out, root=ROOT)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(output_path, bbox_inches="tight", dpi=150)
         print(f"Saved visualization to: {output_path}")
