@@ -1,6 +1,5 @@
 dataset:
   name: whu_mix_vector
-  root: data/raw/whu_mix_vector
 
 splits:
   train:
