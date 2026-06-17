@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any, Iterator
 
 import numpy as np
-import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -16,6 +15,7 @@ if str(SRC) not in sys.path:
 
 from geobuild.data.rasterize import TargetBundle, rasterize_record, summarize_targets
 from geobuild.data.records import ImageRecord
+from geobuild.utils.config import load_config, resolve_path, target_config_from_config
 
 
 @dataclass
@@ -38,43 +38,6 @@ class ValidationTotals:
     records_with_warnings: int = 0
     records_with_errors: int = 0
     max_abs_offset: float = 0.0
-
-
-def load_config(path: Path) -> dict[str, Any]:
-    with path.open("r", encoding="utf-8") as f:
-        config = yaml.safe_load(f)
-
-    if not isinstance(config, dict):
-        raise ValueError(f"Config must be a YAML mapping: {path}")
-
-    return config
-
-
-def target_config(config: dict[str, Any]) -> dict[str, Any]:
-    targets = config["targets"]
-    corner = targets["corner"]
-    center_method = targets["center"]["method"]
-
-    if center_method != "distance_transform":
-        raise ValueError(
-            "Unsupported targets.center.method: "
-            f"{center_method!r}. Only 'distance_transform' is supported."
-        )
-
-    return {
-        "boundary_width": int(targets["boundary_width"]),
-        "corner_radius": int(corner["radius"]),
-        "corner_sigma": float(corner["sigma"]),
-        "corner_source": corner["source"],
-        "corner_simplify_tolerance": float(corner["simplify_tolerance"]),
-        "corner_cumulative_turn_angle_degrees": float(
-            corner["cumulative_turn_angle_degrees"]
-        ),
-        "center_radius": int(targets["center"]["radius"]),
-        "center_sigma": float(targets["center"]["sigma"]),
-        "center_method": center_method,
-        "normalize_offset": bool(targets["offset"]["normalize"]),
-    }
 
 
 def iter_records(
@@ -239,20 +202,7 @@ def validate_record(
     )
 
     try:
-        targets = rasterize_record(
-            record,
-            boundary_width=params["boundary_width"],
-            corner_radius=params["corner_radius"],
-            corner_sigma=params["corner_sigma"],
-            corner_source=params["corner_source"],
-            corner_simplify_tolerance=params["corner_simplify_tolerance"],
-            corner_cumulative_turn_angle_degrees=params[
-                "corner_cumulative_turn_angle_degrees"
-            ],
-            center_radius=params["center_radius"],
-            center_sigma=params["center_sigma"],
-            normalize_offset=params["normalize_offset"],
-        )
+        targets = rasterize_record(record, **params)
         summary = summarize_targets(targets)
     except Exception as exc:
         result.errors.append(f"rasterization failed: {type(exc).__name__}: {exc}")
@@ -368,9 +318,9 @@ def main() -> None:
     if args.max_samples is not None and args.max_samples < 0:
         raise ValueError(f"--max-samples must be non-negative, got {args.max_samples}")
 
-    config = load_config(ROOT / args.config)
-    params = target_config(config)
-    manifest = ROOT / args.manifest
+    config = load_config(args.config, root=ROOT)
+    params = target_config_from_config(config)
+    manifest = resolve_path(args.manifest, root=ROOT)
 
     totals = ValidationTotals()
     warning_examples: list[str] = []

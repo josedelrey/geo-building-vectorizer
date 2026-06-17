@@ -5,7 +5,6 @@ from typing import Any
 
 import numpy as np
 import torch
-import yaml
 from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,16 +14,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from geobuild.data.dataset import build_dataloader, build_dataset
-
-
-def load_config(path: Path) -> dict[str, Any]:
-    with path.open("r", encoding="utf-8") as f:
-        config = yaml.safe_load(f)
-
-    if not isinstance(config, dict):
-        raise ValueError(f"Config must be a YAML mapping: {path}")
-
-    return config
+from geobuild.utils.config import load_config, resolve_path
 
 
 def tensor_stats(name: str, value: torch.Tensor) -> None:
@@ -164,7 +154,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    config = load_config(ROOT / args.config)
+    config = load_config(args.config, root=ROOT)
 
     dataset = build_dataset(config, "train")
     print(f"Dataset length: {len(dataset)}")
@@ -176,7 +166,7 @@ def main() -> None:
     batch = next(iter(dataloader))
     print_batch(batch)
 
-    save_preview(sample, ROOT / args.out)
+    save_preview(sample, resolve_path(args.out, root=ROOT))
 
 
 if __name__ == "__main__":

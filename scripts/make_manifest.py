@@ -3,8 +3,6 @@ import json
 import sys
 from pathlib import Path
 
-import yaml
-
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 
@@ -12,6 +10,12 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from geobuild.data.coco import build_image_records, validate_records
+from geobuild.utils.config import (
+    annotation_path_from_config,
+    image_dir_from_config,
+    load_config,
+    manifest_path_from_config,
+)
 
 
 def write_jsonl(records, output_path: Path) -> None:
@@ -27,17 +31,12 @@ def main() -> None:
     parser.add_argument("--config", type=str, default="configs/data.yaml")
     args = parser.parse_args()
 
-    config_path = ROOT / args.config
-
-    with config_path.open("r", encoding="utf-8") as f:
-        config = yaml.safe_load(f)
-
-    manifest_dir = ROOT / config["output"]["manifest_dir"]
+    config = load_config(args.config, root=ROOT)
     splits = config["splits"]
 
-    for split_name, split_cfg in splits.items():
-        annotation_file = ROOT / split_cfg["annotation_file"]
-        image_dir = ROOT / split_cfg["image_dir"]
+    for split_name in splits:
+        annotation_file = annotation_path_from_config(config, split_name, root=ROOT)
+        image_dir = image_dir_from_config(config, split_name, root=ROOT)
 
         records = build_image_records(
             annotation_file=annotation_file,
@@ -46,7 +45,7 @@ def main() -> None:
         )
 
         stats = validate_records(records)
-        output_path = manifest_dir / f"{split_name}.jsonl"
+        output_path = manifest_path_from_config(config, split_name, root=ROOT)
 
         write_jsonl(records, output_path)
 

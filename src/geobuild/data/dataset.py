@@ -10,6 +10,7 @@ from torch.utils.data import DataLoader, Dataset
 from geobuild.data.rasterize import rasterize_record
 from geobuild.data.records import ImageRecord
 from geobuild.data.transforms import EvalTransform
+from geobuild.utils.config import manifest_path_from_config, target_config_from_config
 
 
 Sample = dict[str, Any]
@@ -73,45 +74,6 @@ class BuildingFootprintDataset(Dataset):
                     ) from exc
 
         return records
-
-
-def target_config_from_config(config: dict[str, Any]) -> dict[str, Any]:
-    targets = config["targets"]
-    corner = targets["corner"]
-    center = targets["center"]
-    offset = targets["offset"]
-    center_method = center["method"]
-
-    if center_method != "distance_transform":
-        raise ValueError(
-            "Unsupported targets.center.method: "
-            f"{center_method!r}. Only 'distance_transform' is supported."
-        )
-
-    return {
-        "boundary_width": int(targets["boundary_width"]),
-        "corner_radius": int(corner["radius"]),
-        "corner_sigma": float(corner["sigma"]),
-        "corner_source": str(corner["source"]),
-        "corner_simplify_tolerance": float(corner["simplify_tolerance"]),
-        "corner_cumulative_turn_angle_degrees": float(
-            corner["cumulative_turn_angle_degrees"]
-        ),
-        "center_radius": int(center["radius"]),
-        "center_sigma": float(center["sigma"]),
-        "normalize_offset": bool(offset["normalize"]),
-    }
-
-
-def manifest_path_from_config(config: dict[str, Any], split: str) -> Path:
-    if split not in config["splits"]:
-        available_splits = list(config["splits"].keys())
-        raise KeyError(
-            f"Unknown split {split!r}; available splits: {available_splits}"
-        )
-
-    manifest_dir = Path(config["output"]["manifest_dir"])
-    return manifest_dir / f"{split}.jsonl"
 
 
 def _pad_tensor(tensor: torch.Tensor, height: int, width: int) -> torch.Tensor:
