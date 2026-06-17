@@ -1,0 +1,14 @@
+name: cv
+channels:
+  - conda-forge
+dependencies:
+  - python>=3.10,<3.13
+  - pip
+  - matplotlib>=3.7
+  - numpy>=1.24
+  - opencv>=4.8
+  - pillow>=10.0
+  - pyyaml>=6.0
+  - pytorch>=2.0
+  - shapely>=2.0
+  - tqdm>=4.66
