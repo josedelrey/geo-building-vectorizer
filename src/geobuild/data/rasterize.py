@@ -350,73 +350,32 @@ def _draw_gaussian(
     )
 
 
-def _point_inside_mask(instance_mask: np.ndarray, x: float, y: float) -> bool:
+def _instance_center(instance_mask: np.ndarray) -> tuple[float, float]:
+    ys, xs = np.where(instance_mask > 0)
+
+    if len(xs) == 0:
+        raise ValueError("Cannot compute center for empty instance mask")
+
+    center_x = float(xs.mean())
+    center_y = float(ys.mean())
+
+    x_round = int(round(center_x))
+    y_round = int(round(center_y))
     height, width = instance_mask.shape
-    pixel_x = int(np.rint(x))
-    pixel_y = int(np.rint(y))
 
-    if pixel_x < 0 or pixel_x >= width or pixel_y < 0 or pixel_y >= height:
-        return False
-
-    return bool(instance_mask[pixel_y, pixel_x])
-
-
-def _representative_point_center(
-    polygon: Polygon,
-    instance_mask: np.ndarray,
-) -> tuple[float, float] | None:
-    try:
-        point = polygon.representative_point()
-    except (GEOSException, ValueError):
-        return None
-
-    center_x = float(point.x)
-    center_y = float(point.y)
-
-    if not np.isfinite([center_x, center_y]).all():
-        return None
-
-    if not _point_inside_mask(instance_mask, center_x, center_y):
-        return None
-
-    return center_x, center_y
-
-
-def _instance_center(
-    instance_mask: np.ndarray,
-    polygon: Polygon,
-) -> tuple[float, float] | None:
-    if not np.any(instance_mask):
-        return None
-
-    distance = cv2.distanceTransform(instance_mask, cv2.DIST_L2, 5)
-    max_value = float(distance.max()) if distance.size else 0.0
-
-    if max_value <= 0.0:
-        return _representative_point_center(polygon, instance_mask)
-
-    plateau_y, plateau_x = np.where(distance >= 0.99 * max_value)
-
-    if plateau_x.size == 0:
-        return _representative_point_center(polygon, instance_mask)
-
-    center_x = float(plateau_x.mean())
-    center_y = float(plateau_y.mean())
-
-    if _point_inside_mask(instance_mask, center_x, center_y):
+    if (
+        0 <= x_round < width
+        and 0 <= y_round < height
+        and instance_mask[y_round, x_round] > 0
+    ):
         return center_x, center_y
 
-    fallback = _representative_point_center(polygon, instance_mask)
-
-    if fallback is not None:
-        return fallback
-
-    squared_distance = (plateau_x.astype(np.float32) - center_x) ** 2 + (
-        plateau_y.astype(np.float32) - center_y
+    squared_distance = (xs.astype(np.float32) - center_x) ** 2 + (
+        ys.astype(np.float32) - center_y
     ) ** 2
     nearest_index = int(np.argmin(squared_distance))
 
-    return float(plateau_x[nearest_index]), float(plateau_y[nearest_index])
+    return float(xs[nearest_index]), float(ys[nearest_index])
 
 
 def rasterize_record(
@@ -491,12 +450,7 @@ def rasterize_record(
             for x, y in corner_points:
                 _draw_gaussian(corner, float(x), float(y), corner_radius, corner_sigma)
 
-            instance_center = _instance_center(instance_mask, clipped_polygon)
-
-            if instance_center is None:
-                continue
-
-            center_x, center_y = instance_center
+            center_x, center_y = _instance_center(instance_mask)
             _draw_gaussian(
                 center,
                 float(center_x),
