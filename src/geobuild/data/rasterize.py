@@ -217,29 +217,9 @@ def _dedupe_ring_points(
     return deduped
 
 
-def _is_far_enough(
-    point: tuple[float, float],
-    selected_points: list[tuple[float, float]],
-    min_distance: float,
-) -> bool:
-    if min_distance <= 0.0:
-        return True
-
-    point_array = np.asarray(point, dtype=np.float64)
-
-    for selected_point in selected_points:
-        selected_array = np.asarray(selected_point, dtype=np.float64)
-
-        if float(np.linalg.norm(point_array - selected_array)) < min_distance:
-            return False
-
-    return True
-
-
-def _select_structural_corners(
+def _select_cumulative_turn_corners(
     points: list[tuple[float, float]],
-    min_turn_angle_degrees: float,
-    min_distance: float,
+    cumulative_turn_angle_degrees: float,
 ) -> list[tuple[float, float]]:
     points = _dedupe_ring_points(points)
 
@@ -249,56 +229,44 @@ def _select_structural_corners(
     if len(points) < 3:
         return points
 
-    angle_by_index = []
+    threshold = max(0.0, float(cumulative_turn_angle_degrees))
+
+    if threshold <= 0.0:
+        return points
+
+    selected = []
+    accumulated_turn = 0.0
+    strongest_index = 0
+    strongest_angle = -1.0
 
     for index, point in enumerate(points):
         prev_point = points[index - 1]
         next_point = points[(index + 1) % len(points)]
         angle = _compute_turn_angle_degrees(prev_point, point, next_point)
-        angle_by_index.append((index, angle))
+        accumulated_turn += angle
 
-    selected = []
+        if angle > strongest_angle:
+            strongest_index = index
+            strongest_angle = angle
 
-    for index, angle in angle_by_index:
-        point = points[index]
-
-        if angle < min_turn_angle_degrees:
+        if accumulated_turn < threshold:
             continue
 
-        if _is_far_enough(point, selected, min_distance):
-            selected.append(point)
+        point = points[index]
+        selected.append(point)
+        accumulated_turn = 0.0
 
     if selected:
         return selected
 
-    fallback_count = min(4, len(points))
-    strongest_indices = sorted(
-        angle_by_index,
-        key=lambda item: item[1],
-        reverse=True,
-    )
-
-    for index, _ in strongest_indices:
-        point = points[index]
-
-        if _is_far_enough(point, selected, min_distance):
-            selected.append(point)
-
-        if len(selected) >= fallback_count:
-            break
-
-    if not selected:
-        selected.append(points[strongest_indices[0][0]])
-
-    return selected
+    return [points[strongest_index]]
 
 
 def _get_corner_points_for_polygon(
     geom: Polygon,
     corner_source: str,
     simplify_tolerance: float,
-    min_turn_angle_degrees: float,
-    min_distance: float,
+    cumulative_turn_angle_degrees: float,
 ) -> list[tuple[float, float]]:
     if corner_source == "raw":
         corner_geom = geom
@@ -316,10 +284,9 @@ def _get_corner_points_for_polygon(
         if np.isfinite([x, y]).all()
     ]
 
-    return _select_structural_corners(
+    return _select_cumulative_turn_corners(
         points,
-        min_turn_angle_degrees=min_turn_angle_degrees,
-        min_distance=min_distance,
+        cumulative_turn_angle_degrees=cumulative_turn_angle_degrees,
     )
 
 
@@ -403,9 +370,8 @@ def rasterize_record(
     corner_radius: int = 4,
     corner_sigma: float = 2.0,
     corner_source: str = "simplified",
-    corner_simplify_tolerance: float = 2.0,
-    corner_min_turn_angle_degrees: float = 25.0,
-    corner_min_distance: float = 4.0,
+    corner_simplify_tolerance: float = 1.0,
+    corner_cumulative_turn_angle_degrees: float = 25.0,
     center_radius: int = 5,
     center_sigma: float = 2.5,
     normalize_offset: bool = True,
@@ -464,8 +430,7 @@ def rasterize_record(
                 clipped_polygon,
                 corner_source=corner_source,
                 simplify_tolerance=corner_simplify_tolerance,
-                min_turn_angle_degrees=corner_min_turn_angle_degrees,
-                min_distance=corner_min_distance,
+                cumulative_turn_angle_degrees=corner_cumulative_turn_angle_degrees,
             )
 
             for x, y in corner_points:
