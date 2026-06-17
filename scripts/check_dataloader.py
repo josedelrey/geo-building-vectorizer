@@ -39,6 +39,11 @@ def print_batch(batch: dict[str, Any]) -> None:
     for key in ("image", "mask", "boundary", "corner", "center", "offset"):
         print(f"{key}: {list(batch[key].shape)}")
 
+    print(f"valid_mask: {list(batch['valid_mask'].shape)}")
+    print(f"original_size: {batch['original_size']}")
+    padded_height = int(batch["image"].shape[-2])
+    padded_width = int(batch["image"].shape[-1])
+    print(f"padded_batch_size: {(padded_height, padded_width)}")
     print(f"image_id: {list(batch['image_id'])}")
 
 
@@ -53,6 +58,31 @@ def to_hw(target: torch.Tensor) -> np.ndarray:
 def offset_magnitude(offset: torch.Tensor) -> np.ndarray:
     offset_array = offset.detach().cpu().numpy()
     return np.sqrt(offset_array[0] ** 2 + offset_array[1] ** 2)
+
+
+def batch_sample(batch: dict[str, Any], index: int) -> dict[str, Any]:
+    original_height, original_width = batch["original_size"][index]
+    cropped = {
+        "image_id": str(batch["image_id"][index]),
+        "original_size": (int(original_height), int(original_width)),
+    }
+
+    for key in ("image", "mask", "boundary", "corner", "center", "offset"):
+        cropped[key] = batch[key][
+            index,
+            :,
+            :original_height,
+            :original_width,
+        ]
+
+    cropped["valid_mask"] = batch["valid_mask"][
+        index,
+        :,
+        :original_height,
+        :original_width,
+    ]
+
+    return cropped
 
 
 def normalize_to_uint8(array: np.ndarray) -> np.ndarray:
@@ -113,6 +143,12 @@ def titled_panel(title: str, image: Image.Image) -> Image.Image:
 
 
 def save_preview(sample: dict[str, Any], output_path: Path) -> None:
+    height, width = sample["original_size"]
+    print(
+        "Preview crop: "
+        f"image_id={sample['image_id']} original_size={(height, width)}"
+    )
+
     panels = [
         ("Image", to_hwc_image(sample["image"]), "rgb"),
         ("Mask", to_hw(sample["mask"]), "gray"),
@@ -166,7 +202,7 @@ def main() -> None:
     batch = next(iter(dataloader))
     print_batch(batch)
 
-    save_preview(sample, resolve_path(args.out, root=ROOT))
+    save_preview(batch_sample(batch, 0), resolve_path(args.out, root=ROOT))
 
 
 if __name__ == "__main__":

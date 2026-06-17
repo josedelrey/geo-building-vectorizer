@@ -85,23 +85,46 @@ def _pad_tensor(tensor: torch.Tensor, height: int, width: int) -> torch.Tensor:
     return padded
 
 
+def _round_up_to_multiple(value: int, multiple: int) -> int:
+    if multiple <= 0:
+        raise ValueError(f"multiple must be positive, got {multiple}")
+
+    return ((value + multiple - 1) // multiple) * multiple
+
+
 def collate_samples(samples: list[Sample]) -> Sample:
     if not samples:
         raise ValueError("Cannot collate an empty batch")
 
     max_height = max(int(sample["image"].shape[-2]) for sample in samples)
     max_width = max(int(sample["image"].shape[-1]) for sample in samples)
+    padded_height = _round_up_to_multiple(max_height, 32)
+    padded_width = _round_up_to_multiple(max_width, 32)
+    original_size = [
+        (int(sample["image"].shape[-2]), int(sample["image"].shape[-1]))
+        for sample in samples
+    ]
     batch: Sample = {}
 
     for key in ("image", "mask", "boundary", "corner", "center", "offset"):
         batch[key] = torch.stack(
             [
-                _pad_tensor(sample[key], max_height, max_width)
+                _pad_tensor(sample[key], padded_height, padded_width)
                 for sample in samples
             ],
             dim=0,
         )
 
+    valid_mask = torch.zeros(
+        (len(samples), 1, padded_height, padded_width),
+        dtype=torch.float32,
+    )
+
+    for index, (height, width) in enumerate(original_size):
+        valid_mask[index, :, :height, :width] = 1.0
+
+    batch["valid_mask"] = valid_mask
+    batch["original_size"] = original_size
     batch["image_id"] = [str(sample["image_id"]) for sample in samples]
 
     return batch
