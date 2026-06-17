@@ -24,15 +24,11 @@ class EvalTransform:
         if offset.ndim != 3:
             raise ValueError(f"offset must have shape [2, H, W], got {offset.shape}")
 
-        if offset.shape[0] == 2:
-            offset_chw = offset
-        elif offset.shape[-1] == 2:
-            offset_chw = np.transpose(offset, (2, 0, 1))
-        else:
+        if offset.shape[0] != 2:
             raise ValueError(f"offset must have shape [2, H, W], got {offset.shape}")
 
         transformed["offset"] = torch.from_numpy(
-            np.ascontiguousarray(offset_chw)
+            np.ascontiguousarray(offset)
         ).float()
 
         return transformed
