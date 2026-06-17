@@ -13,7 +13,12 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from geobuild.data.dataset import build_dataloader, build_dataset, collate_samples
+from geobuild.data.dataset import (
+    BuildingFootprintDataset,
+    build_dataloader,
+    build_dataset,
+    collate_samples,
+)
 from geobuild.utils.config import load_config, output_path_from_config, resolve_path
 
 
@@ -151,13 +156,13 @@ def assert_batch(batch: dict[str, Any]) -> None:
 
 
 def find_sample_indices_by_size(
-    dataset: Any,
+    dataset: BuildingFootprintDataset,
     sizes: list[tuple[int, int]],
 ) -> list[int]:
     wanted = {size: None for size in sizes}
 
-    for index, record in enumerate(dataset.records):
-        size = (int(record.height), int(record.width))
+    for index in range(len(dataset)):
+        size = dataset.record_size(index)
 
         if size in wanted and wanted[size] is None:
             wanted[size] = index
@@ -173,7 +178,7 @@ def find_sample_indices_by_size(
     return [int(wanted[size]) for size in sizes]
 
 
-def check_forced_mixed_size_batch(dataset: Any) -> None:
+def check_forced_mixed_size_batch(dataset: BuildingFootprintDataset) -> None:
     sizes = [(300, 300), (512, 512), (650, 650)]
     indices = find_sample_indices_by_size(dataset, sizes)
     samples = [dataset[index] for index in indices]

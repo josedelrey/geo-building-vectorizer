@@ -27,13 +27,13 @@ class BuildingFootprintDataset(Dataset):
         self.manifest_path = Path(manifest_path)
         self.target_config = dict(target_config)
         self.transform = transform if transform is not None else EvalTransform()
-        self.records = self._load_manifest(self.manifest_path)
+        self._records = self._load_manifest(self.manifest_path)
 
     def __len__(self) -> int:
-        return len(self.records)
+        return len(self._records)
 
     def __getitem__(self, index: int) -> Sample:
-        record = self.records[index]
+        record = self._records[index]
 
         with Image.open(record.image_path) as image:
             image_array = np.asarray(image.convert("RGB"))
@@ -51,6 +51,10 @@ class BuildingFootprintDataset(Dataset):
         }
 
         return self.transform(sample)
+
+    def record_size(self, index: int) -> tuple[int, int]:
+        record = self._records[index]
+        return int(record.height), int(record.width)
 
     @staticmethod
     def _load_manifest(path: Path) -> list[ImageRecord]:
