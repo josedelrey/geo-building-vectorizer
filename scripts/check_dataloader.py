@@ -24,6 +24,132 @@ def tensor_stats(name: str, value: torch.Tensor) -> None:
     )
 
 
+def assert_tensor(
+    name: str,
+    value: Any,
+    expected_dtype: torch.dtype,
+    expected_channels: int,
+    ndim: int,
+) -> None:
+    if not isinstance(value, torch.Tensor):
+        raise TypeError(f"{name} must be a torch.Tensor, got {type(value).__name__}")
+
+    if value.dtype != expected_dtype:
+        raise TypeError(f"{name} dtype must be {expected_dtype}, got {value.dtype}")
+
+    if value.ndim != ndim:
+        raise ValueError(f"{name} must have {ndim} dimensions, got {value.ndim}")
+
+    channel_dim = 0 if ndim == 3 else 1
+    actual_channels = int(value.shape[channel_dim])
+
+    if actual_channels != expected_channels:
+        raise ValueError(
+            f"{name} must have {expected_channels} channels, got {actual_channels}"
+        )
+
+
+def assert_sample(sample: dict[str, Any]) -> None:
+    assert_tensor("image", sample["image"], torch.float32, 3, ndim=3)
+
+    for key in ("mask", "boundary", "corner", "center"):
+        assert_tensor(key, sample[key], torch.float32, 1, ndim=3)
+
+    assert_tensor("offset", sample["offset"], torch.float32, 2, ndim=3)
+
+    height = int(sample["image"].shape[-2])
+    width = int(sample["image"].shape[-1])
+
+    for key in ("mask", "boundary", "corner", "center", "offset"):
+        actual_size = tuple(int(dim) for dim in sample[key].shape[-2:])
+
+        if actual_size != (height, width):
+            raise ValueError(
+                f"{key} spatial shape must match image {(height, width)}, "
+                f"got {actual_size}"
+            )
+
+
+def assert_binary_tensor(name: str, value: torch.Tensor) -> None:
+    unique_values = torch.unique(value)
+    allowed = (unique_values == 0) | (unique_values == 1)
+
+    if not bool(torch.all(allowed)):
+        raise ValueError(
+            f"{name} must contain only 0 and 1, got {unique_values.tolist()}"
+        )
+
+
+def assert_padded_region_zero(
+    name: str,
+    value: torch.Tensor,
+    original_size: list[tuple[int, int]],
+) -> None:
+    for index, (height, width) in enumerate(original_size):
+        bottom = value[index, :, height:, :]
+        right = value[index, :, :, width:]
+
+        if bottom.numel() > 0 and bool(torch.any(bottom != 0)):
+            raise ValueError(
+                f"{name} padded bottom region is non-zero for batch index {index}"
+            )
+
+        if right.numel() > 0 and bool(torch.any(right != 0)):
+            raise ValueError(
+                f"{name} padded right region is non-zero for batch index {index}"
+            )
+
+
+def assert_batch(batch: dict[str, Any]) -> None:
+    assert_tensor("batch.image", batch["image"], torch.float32, 3, ndim=4)
+
+    for key in ("mask", "boundary", "corner", "center"):
+        assert_tensor(f"batch.{key}", batch[key], torch.float32, 1, ndim=4)
+
+    assert_tensor("batch.offset", batch["offset"], torch.float32, 2, ndim=4)
+    assert_tensor("batch.valid_mask", batch["valid_mask"], torch.float32, 1, ndim=4)
+
+    batch_size = int(batch["image"].shape[0])
+    padded_height = int(batch["image"].shape[-2])
+    padded_width = int(batch["image"].shape[-1])
+
+    if padded_height % 32 != 0 or padded_width % 32 != 0:
+        raise ValueError(
+            "Padded batch height and width must be multiples of 32, got "
+            f"{(padded_height, padded_width)}"
+        )
+
+    original_size = [
+        (int(height), int(width))
+        for height, width in batch["original_size"]
+    ]
+
+    if len(original_size) != batch_size:
+        raise ValueError(
+            f"original_size length must be {batch_size}, got {len(original_size)}"
+        )
+
+    if len(batch["image_id"]) != batch_size:
+        raise ValueError(
+            f"image_id length must be {batch_size}, got {len(batch['image_id'])}"
+        )
+
+    assert_binary_tensor("valid_mask", batch["valid_mask"])
+
+    for index, (height, width) in enumerate(original_size):
+        expected_sum = float(height * width)
+        actual_sum = float(batch["valid_mask"][index].sum())
+
+        if actual_sum != expected_sum:
+            raise ValueError(
+                f"valid_mask sum for batch index {index} must be {expected_sum}, "
+                f"got {actual_sum}"
+            )
+
+    for key in ("image", "mask", "boundary", "corner", "center", "offset"):
+        assert_padded_region_zero(key, batch[key], original_size)
+
+
 def print_sample(sample: dict[str, Any]) -> None:
     print("Sample")
 
@@ -198,10 +324,12 @@ def main() -> None:
     print(f"Dataset length: {len(dataset)}")
 
     sample = dataset[0]
+    assert_sample(sample)
     print_sample(sample)
 
     dataloader = build_dataloader(config, args.split)
     batch = next(iter(dataloader))
+    assert_batch(batch)
     print_batch(batch)
 
     if args.out is not None:
