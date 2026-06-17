@@ -13,7 +13,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from geobuild.data.dataset import build_dataloader, build_dataset
+from geobuild.data.dataset import build_dataloader, build_dataset, collate_samples
 from geobuild.utils.config import load_config, output_path_from_config, resolve_path
 
 
@@ -148,6 +148,65 @@ def assert_batch(batch: dict[str, Any]) -> None:
 
     for key in ("image", "mask", "boundary", "corner", "center", "offset"):
         assert_padded_region_zero(key, batch[key], original_size)
+
+
+def find_sample_indices_by_size(
+    dataset: Any,
+    sizes: list[tuple[int, int]],
+) -> list[int]:
+    wanted = {size: None for size in sizes}
+
+    for index, record in enumerate(dataset.records):
+        size = (int(record.height), int(record.width))
+
+        if size in wanted and wanted[size] is None:
+            wanted[size] = index
+
+        if all(value is not None for value in wanted.values()):
+            break
+
+    missing = [size for size, index in wanted.items() if index is None]
+
+    if missing:
+        raise ValueError(f"Could not find samples with sizes: {missing}")
+
+    return [int(wanted[size]) for size in sizes]
+
+
+def check_forced_mixed_size_batch(dataset: Any) -> None:
+    sizes = [(300, 300), (512, 512), (650, 650)]
+    indices = find_sample_indices_by_size(dataset, sizes)
+    samples = [dataset[index] for index in indices]
+    batch = collate_samples(samples)
+    assert_batch(batch)
+
+    expected_padded_size = (672, 672)
+    actual_padded_size = (
+        int(batch["image"].shape[-2]),
+        int(batch["image"].shape[-1]),
+    )
+
+    if actual_padded_size != expected_padded_size:
+        raise ValueError(
+            f"Forced mixed-size batch padded size must be {expected_padded_size}, "
+            f"got {actual_padded_size}"
+        )
+
+    original_size = [
+        (int(height), int(width))
+        for height, width in batch["original_size"]
+    ]
+
+    if original_size != sizes:
+        raise ValueError(
+            f"Forced mixed-size batch original_size must be {sizes}, "
+            f"got {original_size}"
+        )
+
+    print("Forced mixed-size batch")
+    print(f"indices: {indices}")
+    print(f"original_size: {original_size}")
+    print(f"padded_batch_size: {actual_padded_size}")
 
 
 def print_sample(sample: dict[str, Any]) -> None:
@@ -322,6 +381,9 @@ def main() -> None:
     dataset = build_dataset(config, args.split)
     print(f"Split: {args.split}")
     print(f"Dataset length: {len(dataset)}")
+
+    if args.split == "train":
+        check_forced_mixed_size_batch(dataset)
 
     sample = dataset[0]
     assert_sample(sample)
