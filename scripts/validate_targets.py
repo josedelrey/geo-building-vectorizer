@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 import numpy as np
+from tqdm import tqdm
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -57,6 +58,26 @@ def iter_records(
 
             processed += 1
             yield index, ImageRecord.from_dict(json.loads(line))
+
+
+def count_records(
+    manifest: Path,
+    stride: int,
+    max_samples: int | None,
+) -> int:
+    count = 0
+
+    with manifest.open("r", encoding="utf-8") as f:
+        for index, line in enumerate(f):
+            if index % stride != 0 or not line.strip():
+                continue
+
+            if max_samples is not None and count >= max_samples:
+                break
+
+            count += 1
+
+    return count
 
 
 def _array_has_nan(array: np.ndarray) -> bool:
@@ -325,11 +346,23 @@ def main() -> None:
     totals = ValidationTotals()
     warning_examples: list[str] = []
     error_examples: list[str] = []
-
-    for manifest_index, record in iter_records(
+    total_records = count_records(
         manifest,
         stride=args.stride,
         max_samples=args.max_samples,
+    )
+    records = iter_records(
+        manifest,
+        stride=args.stride,
+        max_samples=args.max_samples,
+    )
+
+    for manifest_index, record in tqdm(
+        records,
+        total=total_records,
+        desc="Validating targets",
+        ascii=True,
+        unit="record",
     ):
         result, summary, targets = validate_record(manifest_index, record, params)
         update_totals(totals, record, result, summary, targets)
