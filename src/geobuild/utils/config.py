@@ -47,6 +47,38 @@ def manifest_dir_from_config(
     return resolve_path(config["output"]["manifest_dir"], root)
 
 
+def output_root_from_config(
+    config: dict[str, Any],
+    root: str | Path = PROJECT_ROOT,
+) -> Path:
+    return resolve_path(config["output"]["root"], root)
+
+
+def output_path_from_config(
+    config: dict[str, Any],
+    key: str,
+    root: str | Path = PROJECT_ROOT,
+) -> Path:
+    output = config["output"]
+
+    if key not in output:
+        raise KeyError(f"Missing output config key: {key!r}")
+
+    path = Path(output[key])
+
+    if path.is_absolute():
+        return path
+
+    return output_root_from_config(config, root) / path
+
+
+def debug_dir_from_config(
+    config: dict[str, Any],
+    root: str | Path = PROJECT_ROOT,
+) -> Path:
+    return output_path_from_config(config, "debug_dir", root)
+
+
 def manifest_path_from_config(
     config: dict[str, Any],
     split: str,

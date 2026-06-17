@@ -14,7 +14,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from geobuild.data.dataset import build_dataloader, build_dataset
-from geobuild.utils.config import load_config, resolve_path
+from geobuild.utils.config import load_config, output_path_from_config, resolve_path
 
 
 def tensor_stats(name: str, value: torch.Tensor) -> None:
@@ -183,7 +183,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--out",
         type=str,
-        default="data/processed/samples_debug/dataloader_train_000.png",
+        default=None,
     )
     return parser.parse_args()
 
@@ -202,7 +202,12 @@ def main() -> None:
     batch = next(iter(dataloader))
     print_batch(batch)
 
-    save_preview(batch_sample(batch, 0), resolve_path(args.out, root=ROOT))
+    output_path = (
+        resolve_path(args.out, root=ROOT)
+        if args.out is not None
+        else output_path_from_config(config, "dataloader_check", root=ROOT)
+    )
+    save_preview(batch_sample(batch, 0), output_path)
 
 
 if __name__ == "__main__":

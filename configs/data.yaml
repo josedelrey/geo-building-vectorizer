@@ -20,8 +20,10 @@ splits:
     annotation_file: data/raw/whu_mix_vector/test2/test2.json
 
 output:
+  root: outputs
   manifest_dir: data/processed/manifests
-  debug_dir: data/processed/samples_debug
+  debug_dir: debug
+  dataloader_check: check_dataloader/dataloader_train_000.png
 
 targets:
   boundary_width: 3
