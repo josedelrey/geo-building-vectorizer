@@ -351,31 +351,21 @@ def _draw_gaussian(
 
 
 def _instance_center(instance_mask: np.ndarray) -> tuple[float, float]:
-    ys, xs = np.where(instance_mask > 0)
+    foreground = (instance_mask > 0).astype(np.uint8)
 
-    if len(xs) == 0:
+    if not np.any(foreground):
         raise ValueError("Cannot compute center for empty instance mask")
 
-    center_x = float(xs.mean())
-    center_y = float(ys.mean())
+    padded = np.pad(foreground, pad_width=1, mode="constant", constant_values=0)
+    distance = cv2.distanceTransform(
+        padded,
+        distanceType=cv2.DIST_L2,
+        maskSize=cv2.DIST_MASK_PRECISE,
+    )[1:-1, 1:-1]
 
-    x_round = int(round(center_x))
-    y_round = int(round(center_y))
-    height, width = instance_mask.shape
+    center_y, center_x = np.unravel_index(int(np.argmax(distance)), distance.shape)
 
-    if (
-        0 <= x_round < width
-        and 0 <= y_round < height
-        and instance_mask[y_round, x_round] > 0
-    ):
-        return center_x, center_y
-
-    squared_distance = (xs.astype(np.float32) - center_x) ** 2 + (
-        ys.astype(np.float32) - center_y
-    ) ** 2
-    nearest_index = int(np.argmin(squared_distance))
-
-    return float(xs[nearest_index]), float(ys[nearest_index])
+    return float(center_x), float(center_y)
 
 
 def rasterize_record(
