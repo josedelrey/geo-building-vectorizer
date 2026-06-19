@@ -19,6 +19,7 @@ from geobuild.data.dataset import (
     build_dataset,
     collate_samples,
 )
+from geobuild.data.records import ImageRecord
 from geobuild.utils.config import load_config, output_path_from_config, resolve_path
 
 
@@ -321,6 +322,32 @@ def panel_image(data: np.ndarray, mode: str) -> Image.Image:
     return Image.fromarray(array, mode="RGB")
 
 
+def record_by_image_id(dataset: BuildingFootprintDataset) -> dict[str, ImageRecord]:
+    return {str(record.image_id): record for record in dataset._records}
+
+
+def draw_polygon_lines(
+    image: Image.Image,
+    record: ImageRecord | None,
+    color: tuple[int, int, int] = (255, 255, 255),
+) -> Image.Image:
+    if record is None:
+        return image
+
+    overlay = image.copy()
+    draw = ImageDraw.Draw(overlay)
+
+    for polygon in record.polygons:
+        points = [(float(x), float(y)) for x, y in polygon.exterior]
+
+        if not points:
+            continue
+
+        draw.line(points + [points[0]], fill=color, width=1)
+
+    return overlay
+
+
 def titled_panel(title: str, image: Image.Image) -> Image.Image:
     title_height = 28
     panel = Image.new("RGB", (image.width, image.height + title_height), "white")
@@ -332,7 +359,11 @@ def titled_panel(title: str, image: Image.Image) -> Image.Image:
     return panel
 
 
-def save_preview(sample: dict[str, Any], output_path: Path) -> None:
+def save_preview(
+    sample: dict[str, Any],
+    output_path: Path,
+    record: ImageRecord | None = None,
+) -> None:
     height, width = sample["original_size"]
     print(
         "Preview crop: "
@@ -340,24 +371,34 @@ def save_preview(sample: dict[str, Any], output_path: Path) -> None:
     )
 
     panels = [
-        ("Image", to_hwc_image(sample["image"]), "rgb"),
-        ("Mask", to_hw(sample["mask"]), "gray"),
-        ("Boundary", to_hw(sample["boundary"]), "gray"),
-        ("Corner", to_hw(sample["corner"]), "viridis"),
-        ("Center", to_hw(sample["center"]), "viridis"),
-        ("Offset magnitude", offset_magnitude(sample["offset"]), "magma"),
+        titled_panel("Image", panel_image(to_hwc_image(sample["image"]), "rgb")),
+        titled_panel("Mask", panel_image(to_hw(sample["mask"]), "gray")),
+        titled_panel("Boundary", panel_image(to_hw(sample["boundary"]), "gray")),
+        titled_panel(
+            "Corner",
+            draw_polygon_lines(
+                panel_image(to_hw(sample["corner"]), "viridis"),
+                record,
+            ),
+        ),
+        titled_panel(
+            "Center",
+            draw_polygon_lines(
+                panel_image(to_hw(sample["center"]), "viridis"),
+                record,
+            ),
+        ),
+        titled_panel(
+            "Offset magnitude",
+            panel_image(offset_magnitude(sample["offset"]), "magma"),
+        ),
     ]
 
-    rendered = [
-        titled_panel(title, panel_image(data, mode))
-        for title, data, mode in panels
-    ]
-
-    panel_width = max(panel.width for panel in rendered)
-    panel_height = max(panel.height for panel in rendered)
+    panel_width = max(panel.width for panel in panels)
+    panel_height = max(panel.height for panel in panels)
     grid = Image.new("RGB", (panel_width * 3, panel_height * 2), "white")
 
-    for index, panel in enumerate(rendered):
+    for index, panel in enumerate(panels):
         x = (index % 3) * panel_width
         y = (index // 3) * panel_height
         grid.paste(panel, (x, y))
@@ -409,7 +450,10 @@ def main() -> None:
             split=args.split,
         )
 
-    save_preview(batch_sample(batch, 0), output_path)
+    preview_sample = batch_sample(batch, 0)
+    records = record_by_image_id(dataset)
+    record = records.get(str(preview_sample["image_id"]))
+    save_preview(preview_sample, output_path, record=record)
 
 
 if __name__ == "__main__":
