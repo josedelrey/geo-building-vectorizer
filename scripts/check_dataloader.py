@@ -15,7 +15,13 @@ from geobuild.data.dataset import (
     collate_samples,
 )
 from geobuild.data.records import ImageRecord
-from geobuild.utils.config import load_config, output_path_from_config, resolve_path
+from geobuild.utils.config import (
+    concrete_active_targets_from_config,
+    load_config,
+    output_path_from_config,
+    resolve_path,
+    target_cache_config_from_config,
+)
 
 
 TARGET_CHANNELS = {
@@ -462,10 +468,18 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     config = load_config(args.config, root=ROOT)
+    active_targets = concrete_active_targets_from_config(config)
+    cache_config = target_cache_config_from_config(config, root=ROOT)
 
     dataset = build_dataset(config, args.split)
     print(f"Split: {args.split}")
     print(f"Dataset length: {len(dataset)}")
+    print(f"Active targets: {sorted(active_targets)}")
+    print(f"Target cache enabled: {bool(cache_config['enabled'])}")
+    print(f"Cached targets: {sorted(cache_config['targets'])}")
+
+    if cache_config["enabled"]:
+        print(f"Target cache root: {cache_config['root']}")
 
     if args.split == "train":
         check_forced_mixed_size_batch(dataset)

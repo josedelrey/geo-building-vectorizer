@@ -35,6 +35,10 @@ output:
 
 targets:
   active: auto
+  cache:
+    enabled: true
+    root: data/processed/target_cache
+    targets: [mask]
   boundary_width: 3
 
   corner:

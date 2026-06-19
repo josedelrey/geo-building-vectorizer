@@ -6,6 +6,7 @@ import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 ALLOWED_TARGET_NAMES = {"mask", "boundary", "corner", "center", "offset", "instance"}
+DEFAULT_TARGET_CACHE_ROOT = "data/processed/target_cache"
 
 
 def resolve_path(path: str | Path, root: str | Path = PROJECT_ROOT) -> Path:
@@ -130,6 +131,58 @@ def target_config_from_config(config: dict[str, Any]) -> dict[str, Any]:
         "center_sigma": float(center["sigma"]),
         "normalize_offset": bool(offset["normalize"]),
         "active_targets": active_targets_from_config(config),
+    }
+
+
+def concrete_active_targets_from_config(config: dict[str, Any]) -> set[str]:
+    active_targets = active_targets_from_config(config)
+
+    if active_targets is None:
+        return set(ALLOWED_TARGET_NAMES)
+
+    return set(active_targets)
+
+
+def target_cache_config_from_config(
+    config: dict[str, Any],
+    root: str | Path = PROJECT_ROOT,
+) -> dict[str, Any]:
+    targets = config.get("targets", {})
+    cache = targets.get("cache")
+
+    if not isinstance(cache, dict) or not bool(cache.get("enabled", False)):
+        return {
+            "enabled": False,
+            "root": None,
+            "targets": set(),
+        }
+
+    if "targets" not in cache:
+        raise ValueError("targets.cache.targets must be an explicit list")
+
+    if not isinstance(cache["targets"], list):
+        raise TypeError("targets.cache.targets must be an explicit list")
+
+    cache_targets = {str(name) for name in cache["targets"]}
+    unknown = cache_targets - ALLOWED_TARGET_NAMES
+
+    if unknown:
+        raise ValueError(f"Unknown targets.cache.targets names: {sorted(unknown)}")
+
+    active_targets = concrete_active_targets_from_config(config)
+    inactive = cache_targets - active_targets
+
+    if inactive:
+        raise ValueError(
+            "targets.cache.targets must be a subset of active targets; "
+            f"inactive cache targets: {sorted(inactive)}, "
+            f"active targets: {sorted(active_targets)}"
+        )
+
+    return {
+        "enabled": True,
+        "root": resolve_path(cache.get("root", DEFAULT_TARGET_CACHE_ROOT), root),
+        "targets": cache_targets,
     }
 
 

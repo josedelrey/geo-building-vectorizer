@@ -9,8 +9,14 @@ from torch.utils.data import DataLoader, Dataset
 
 from geobuild.data.rasterize import rasterize_record
 from geobuild.data.records import ImageRecord
+from geobuild.data.target_cache import TargetCache
 from geobuild.data.transforms import EvalTransform, build_transform
-from geobuild.utils.config import manifest_path_from_config, target_config_from_config
+from geobuild.utils.config import (
+    concrete_active_targets_from_config,
+    manifest_path_from_config,
+    target_cache_config_from_config,
+    target_config_from_config,
+)
 
 
 Sample = dict[str, Any]
@@ -24,10 +30,18 @@ class BuildingFootprintDataset(Dataset):
         manifest_path: str | Path,
         target_config: dict[str, Any],
         transform: Transform | None = None,
+        active_targets: set[str] | None = None,
+        target_cache_config: dict[str, Any] | None = None,
     ) -> None:
         self.manifest_path = Path(manifest_path)
         self.target_config = dict(target_config)
         self.transform = transform if transform is not None else EvalTransform()
+        self.active_targets = (
+            set(active_targets)
+            if active_targets is not None
+            else _active_target_set(self.target_config.get("active_targets"))
+        )
+        self.target_cache = self._build_target_cache(target_cache_config)
         self._records = self._load_manifest(self.manifest_path)
 
     def __len__(self) -> int:
@@ -43,14 +57,64 @@ class BuildingFootprintDataset(Dataset):
             "image": image_array,
             "image_id": str(record.image_id),
         }
-        targets = rasterize_record(record, **self.target_config)
-        sample.update(targets.to_dict())
+        sample.update(self._load_or_rasterize_targets(record))
 
         return self.transform(sample)
 
     def record_size(self, index: int) -> tuple[int, int]:
         record = self._records[index]
         return int(record.height), int(record.width)
+
+    def _load_or_rasterize_targets(self, record: ImageRecord) -> dict[str, np.ndarray]:
+        targets = {}
+
+        if self.target_cache is not None:
+            targets.update(self.target_cache.load(record, self.active_targets))
+
+        missing_targets = self.active_targets - set(targets)
+
+        if missing_targets:
+            raster_config = {
+                **self.target_config,
+                "active_targets": missing_targets,
+            }
+            generated = rasterize_record(record, **raster_config).to_dict()
+            generated = {
+                name: value
+                for name, value in generated.items()
+                if name in missing_targets
+            }
+            targets.update(generated)
+
+            if self.target_cache is not None:
+                self.target_cache.save(record, generated)
+
+        missing_after = self.active_targets - set(targets)
+
+        if missing_after:
+            raise RuntimeError(
+                f"Missing active targets after rasterization: {sorted(missing_after)}"
+            )
+
+        return targets
+
+    def _build_target_cache(
+        self,
+        cache_config: dict[str, Any] | None,
+    ) -> TargetCache | None:
+        if not cache_config or not bool(cache_config.get("enabled", False)):
+            return None
+
+        cache_targets = set(cache_config.get("targets", set()))
+
+        if not cache_targets:
+            return None
+
+        return TargetCache(
+            root=cache_config["root"],
+            targets=cache_targets,
+            raster_config=self.target_config,
+        )
 
     @staticmethod
     def _load_manifest(path: Path) -> list[ImageRecord]:
@@ -74,6 +138,18 @@ class BuildingFootprintDataset(Dataset):
                     ) from exc
 
         return records
+
+
+def _active_target_set(active_targets: Any) -> set[str]:
+    if active_targets is None:
+        return set(TARGET_KEYS)
+
+    if isinstance(active_targets, str):
+        if active_targets.lower() == "all":
+            return set(TARGET_KEYS)
+        return {active_targets}
+
+    return {str(name) for name in active_targets}
 
 
 def _pad_tensor(tensor: torch.Tensor, height: int, width: int) -> torch.Tensor:
@@ -155,6 +231,8 @@ def build_dataset(
         manifest_path=manifest_path_from_config(config, split),
         target_config=target_config_from_config(config),
         transform=build_transform(config, split, force_noaug=force_noaug),
+        active_targets=concrete_active_targets_from_config(config),
+        target_cache_config=target_cache_config_from_config(config),
     )
 
 

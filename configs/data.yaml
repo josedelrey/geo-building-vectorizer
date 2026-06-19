@@ -30,6 +30,8 @@ output:
 
 targets:
   active: all
+  cache:
+    enabled: false
   boundary_width: 3
 
   corner:
