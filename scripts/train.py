@@ -99,6 +99,30 @@ def build_amp_scaler(config: dict[str, Any], device: torch.device) -> Any | None
     return torch.cuda.amp.GradScaler(enabled=True)
 
 
+def build_scheduler(
+    optimizer: torch.optim.Optimizer,
+    config: dict[str, Any],
+) -> Any | None:
+    scheduler_config = config.get("scheduler", {})
+    scheduler_name = str(scheduler_config.get("name", "none")).lower()
+
+    if scheduler_name == "none":
+        return None
+
+    if scheduler_name == "cosine":
+        train_config = config.get("train", {})
+        return torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer,
+            T_max=int(train_config.get("epochs", 1)),
+            eta_min=float(scheduler_config.get("min_lr", 0.0)),
+        )
+
+    raise ValueError(
+        f"Unsupported scheduler: {scheduler_config.get('name')!r}. "
+        "Supported schedulers: 'none', 'cosine'."
+    )
+
+
 def run_dir_from_config(config: dict[str, Any]) -> Path:
     output = config.get("output", {})
 
@@ -160,6 +184,7 @@ def main() -> None:
         lr=float(train_config.get("lr", 0.0001)),
         weight_decay=float(train_config.get("weight_decay", 0.0)),
     )
+    scheduler = build_scheduler(optimizer, config)
     scaler = build_amp_scaler(config, device)
 
     print(f"Run directory: {run_dir}")
@@ -176,6 +201,7 @@ def main() -> None:
         run_dir=run_dir,
         device=device,
         loss_fn=loss_fn,
+        scheduler=scheduler,
         scaler=scaler,
     )
 

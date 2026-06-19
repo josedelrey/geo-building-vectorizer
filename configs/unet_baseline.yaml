@@ -78,6 +78,10 @@ train:
   preview_every: 1
   save_every: 0
 
+scheduler:
+  name: cosine
+  min_lr: 0.000001
+
 loss:
   mask_weight: 1.0
   boundary_weight: 0.0
