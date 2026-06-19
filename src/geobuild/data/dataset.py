@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader, Dataset
 
 from geobuild.data.rasterize import rasterize_record
 from geobuild.data.records import ImageRecord
-from geobuild.data.transforms import EvalTransform
+from geobuild.data.transforms import EvalTransform, build_transform
 from geobuild.utils.config import manifest_path_from_config, target_config_from_config
 
 
@@ -134,11 +134,15 @@ def collate_samples(samples: list[Sample]) -> Sample:
     return batch
 
 
-def build_dataset(config: dict[str, Any], split: str) -> BuildingFootprintDataset:
+def build_dataset(
+    config: dict[str, Any],
+    split: str,
+    force_noaug: bool = False,
+) -> BuildingFootprintDataset:
     return BuildingFootprintDataset(
         manifest_path=manifest_path_from_config(config, split),
         target_config=target_config_from_config(config),
-        transform=EvalTransform(),
+        transform=build_transform(config, split, force_noaug=force_noaug),
     )
 
 

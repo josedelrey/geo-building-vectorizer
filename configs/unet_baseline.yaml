@@ -82,6 +82,9 @@ scheduler:
   name: cosine
   min_lr: 0.000001
 
+augmentation:
+  name: noaug
+
 loss:
   mask_weight: 1.0
   boundary_weight: 0.0

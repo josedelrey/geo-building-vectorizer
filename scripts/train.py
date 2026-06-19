@@ -78,10 +78,10 @@ def build_datasets(
         raise ValueError(f"--overfit must be positive, got {overfit}")
 
     train_dataset = build_dataset(config, "train")
+    val_dataset = build_dataset(config, "train", force_noaug=True)
     count = min(int(overfit), len(train_dataset))
     indices = list(range(count))
-    subset = Subset(train_dataset, indices)
-    return subset, subset
+    return Subset(train_dataset, indices), Subset(val_dataset, indices)
 
 
 def build_amp_scaler(config: dict[str, Any], device: torch.device) -> Any | None:
