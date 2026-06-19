@@ -20,22 +20,51 @@ from geobuild.data.records import ImageRecord, PolygonInstance
 
 @dataclass
 class TargetBundle:
-    mask: np.ndarray
-    boundary: np.ndarray
-    corner: np.ndarray
-    center: np.ndarray
-    offset: np.ndarray
-    instance: np.ndarray
+    mask: np.ndarray | None = None
+    boundary: np.ndarray | None = None
+    corner: np.ndarray | None = None
+    center: np.ndarray | None = None
+    offset: np.ndarray | None = None
+    instance: np.ndarray | None = None
 
     def to_dict(self) -> dict[str, np.ndarray]:
         return {
-            "mask": self.mask,
-            "boundary": self.boundary,
-            "corner": self.corner,
-            "center": self.center,
-            "offset": self.offset,
-            "instance": self.instance,
+            name: value
+            for name, value in {
+                "mask": self.mask,
+                "boundary": self.boundary,
+                "corner": self.corner,
+                "center": self.center,
+                "offset": self.offset,
+                "instance": self.instance,
+            }.items()
+            if value is not None
         }
+
+
+TARGET_NAMES = {"mask", "boundary", "corner", "center", "offset", "instance"}
+
+
+def _resolve_active_targets(active_targets: object) -> set[str]:
+    if active_targets is None:
+        return set(TARGET_NAMES)
+
+    if isinstance(active_targets, str):
+        if active_targets.lower() == "all":
+            return set(TARGET_NAMES)
+        active = {active_targets}
+    else:
+        active = {str(name) for name in active_targets}
+
+    unknown = active - TARGET_NAMES
+
+    if unknown:
+        raise ValueError(f"Unknown active target names: {sorted(unknown)}")
+
+    if not active:
+        raise ValueError("active_targets cannot be empty")
+
+    return active
 
 
 def _finite_points(points: list[list[float]]) -> list[tuple[float, float]]:
@@ -379,19 +408,27 @@ def rasterize_record(
     center_radius: int = 5,
     center_sigma: float = 2.5,
     normalize_offset: bool = True,
+    active_targets: object = None,
 ) -> TargetBundle:
     height = int(record.height)
     width = int(record.width)
+    active = _resolve_active_targets(active_targets)
 
     if height <= 0 or width <= 0:
         raise ValueError(f"Invalid image size: width={width}, height={height}")
 
-    mask = np.zeros((height, width), dtype=np.uint8)
-    boundary = np.zeros((height, width), dtype=np.uint8)
-    corner = np.zeros((height, width), dtype=np.float32)
-    center = np.zeros((height, width), dtype=np.float32)
-    offset = np.zeros((2, height, width), dtype=np.float32)
-    instance = np.zeros((height, width), dtype=np.int32)
+    mask = np.zeros((height, width), dtype=np.uint8) if "mask" in active else None
+    boundary = (
+        np.zeros((height, width), dtype=np.uint8) if "boundary" in active else None
+    )
+    corner = np.zeros((height, width), dtype=np.float32) if "corner" in active else None
+    center = np.zeros((height, width), dtype=np.float32) if "center" in active else None
+    offset = (
+        np.zeros((2, height, width), dtype=np.float32) if "offset" in active else None
+    )
+    instance = (
+        np.zeros((height, width), dtype=np.int32) if "instance" in active else None
+    )
 
     next_instance_id = 1
 
@@ -418,10 +455,13 @@ def rasterize_record(
             next_instance_id += 1
 
             building_pixels = instance_mask.astype(bool)
-            mask[building_pixels] = 1
-            instance[building_pixels] = instance_id
+            if mask is not None:
+                mask[building_pixels] = 1
 
-            if boundary_width > 0:
+            if instance is not None:
+                instance[building_pixels] = instance_id
+
+            if boundary is not None and boundary_width > 0:
                 cv2.drawContours(
                     boundary,
                     [exterior.reshape((-1, 1, 2))],
@@ -430,35 +470,46 @@ def rasterize_record(
                     thickness=int(boundary_width),
                 )
 
-            corner_points = _get_corner_points_for_polygon(
-                clipped_polygon,
-                corner_source=corner_source,
-                simplify_tolerance=corner_simplify_tolerance,
-                cumulative_turn_angle_degrees=corner_cumulative_turn_angle_degrees,
-            )
+            if corner is not None:
+                corner_points = _get_corner_points_for_polygon(
+                    clipped_polygon,
+                    corner_source=corner_source,
+                    simplify_tolerance=corner_simplify_tolerance,
+                    cumulative_turn_angle_degrees=corner_cumulative_turn_angle_degrees,
+                )
 
-            for x, y in corner_points:
-                _draw_gaussian(corner, float(x), float(y), corner_radius, corner_sigma)
+                for x, y in corner_points:
+                    _draw_gaussian(
+                        corner,
+                        float(x),
+                        float(y),
+                        corner_radius,
+                        corner_sigma,
+                    )
 
-            center_x, center_y = _instance_center(instance_mask)
-            _draw_gaussian(
-                center,
-                float(center_x),
-                float(center_y),
-                center_radius,
-                center_sigma,
-            )
+            if center is not None or offset is not None:
+                center_x, center_y = _instance_center(instance_mask)
 
-            ys, xs = np.nonzero(building_pixels)
-            offset_x = center_x - xs.astype(np.float32)
-            offset_y = center_y - ys.astype(np.float32)
+                if center is not None:
+                    _draw_gaussian(
+                        center,
+                        float(center_x),
+                        float(center_y),
+                        center_radius,
+                        center_sigma,
+                    )
 
-            if normalize_offset:
-                offset_x /= float(width)
-                offset_y /= float(height)
+                if offset is not None:
+                    ys, xs = np.nonzero(building_pixels)
+                    offset_x = center_x - xs.astype(np.float32)
+                    offset_y = center_y - ys.astype(np.float32)
 
-            offset[0, ys, xs] = offset_x
-            offset[1, ys, xs] = offset_y
+                    if normalize_offset:
+                        offset_x /= float(width)
+                        offset_y /= float(height)
+
+                    offset[0, ys, xs] = offset_x
+                    offset[1, ys, xs] = offset_y
 
     return TargetBundle(
         mask=mask,
@@ -471,22 +522,42 @@ def rasterize_record(
 
 
 def summarize_targets(targets: TargetBundle) -> dict[str, Any]:
-    instance_ids = targets.instance[targets.instance > 0]
+    target_dict = targets.to_dict()
+    mask = target_dict.get("mask")
+    boundary = target_dict.get("boundary")
+    corner = target_dict.get("corner")
+    center = target_dict.get("center")
+    offset = target_dict.get("offset")
+    instance = target_dict.get("instance")
+    instance_ids = (
+        instance[instance > 0]
+        if instance is not None
+        else np.asarray([], dtype=np.int32)
+    )
 
     return {
-        "mask_pixels": int(np.count_nonzero(targets.mask)),
-        "boundary_pixels": int(np.count_nonzero(targets.boundary)),
-        "corner_max": float(np.max(targets.corner)) if targets.corner.size else 0.0,
-        "center_max": float(np.max(targets.center)) if targets.center.size else 0.0,
+        "mask_pixels": int(np.count_nonzero(mask)) if mask is not None else 0,
+        "boundary_pixels": (
+            int(np.count_nonzero(boundary)) if boundary is not None else 0
+        ),
+        "corner_max": (
+            float(np.max(corner)) if corner is not None and corner.size else 0.0
+        ),
+        "center_max": (
+            float(np.max(center)) if center is not None and center.size else 0.0
+        ),
         "num_instances": int(len(np.unique(instance_ids))),
-        "offset_min": float(np.min(targets.offset)) if targets.offset.size else 0.0,
-        "offset_max": float(np.max(targets.offset)) if targets.offset.size else 0.0,
+        "offset_min": (
+            float(np.min(offset)) if offset is not None and offset.size else 0.0
+        ),
+        "offset_max": (
+            float(np.max(offset)) if offset is not None and offset.size else 0.0
+        ),
         "has_nan": bool(
-            np.isnan(targets.mask).any()
-            or np.isnan(targets.boundary).any()
-            or np.isnan(targets.corner).any()
-            or np.isnan(targets.center).any()
-            or np.isnan(targets.offset).any()
-            or np.isnan(targets.instance).any()
+            any(
+                np.isnan(value).any()
+                for value in target_dict.values()
+                if np.issubdtype(value.dtype, np.floating)
+            )
         ),
     }

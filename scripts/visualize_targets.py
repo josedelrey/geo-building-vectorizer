@@ -202,6 +202,7 @@ def main() -> None:
     args = parser.parse_args()
 
     config = load_config(args.config, root=ROOT)
+    config.setdefault("targets", {})["active"] = "all"
     params = target_config_from_config(config)
 
     manifest = resolve_path(args.manifest, root=ROOT)

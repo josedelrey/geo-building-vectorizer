@@ -15,6 +15,7 @@ from geobuild.utils.config import manifest_path_from_config, target_config_from_
 
 Sample = dict[str, Any]
 Transform = Callable[[Sample], Sample]
+TARGET_KEYS = ("mask", "boundary", "corner", "center", "offset", "instance")
 
 
 class BuildingFootprintDataset(Dataset):
@@ -38,17 +39,12 @@ class BuildingFootprintDataset(Dataset):
         with Image.open(record.image_path) as image:
             image_array = np.asarray(image.convert("RGB"))
 
-        targets = rasterize_record(record, **self.target_config)
-
         sample: Sample = {
             "image": image_array,
-            "mask": targets.mask,
-            "boundary": targets.boundary,
-            "corner": targets.corner,
-            "center": targets.center,
-            "offset": targets.offset,
             "image_id": str(record.image_id),
         }
+        targets = rasterize_record(record, **self.target_config)
+        sample.update(targets.to_dict())
 
         return self.transform(sample)
 
@@ -109,8 +105,24 @@ def collate_samples(samples: list[Sample]) -> Sample:
         for sample in samples
     ]
     batch: Sample = {}
+    target_keys = [
+        key
+        for key in TARGET_KEYS
+        if key in samples[0]
+    ]
+    expected_keys = set(target_keys)
 
-    for key in ("image", "mask", "boundary", "corner", "center", "offset"):
+    for index, sample in enumerate(samples):
+        actual_keys = {key for key in TARGET_KEYS if key in sample}
+
+        if actual_keys != expected_keys:
+            raise ValueError(
+                "All samples in a batch must have the same target keys; "
+                f"sample 0 has {sorted(expected_keys)}, "
+                f"sample {index} has {sorted(actual_keys)}"
+            )
+
+    for key in ("image", *target_keys):
         batch[key] = torch.stack(
             [
                 _pad_tensor(sample[key], padded_height, padded_width)

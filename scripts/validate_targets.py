@@ -340,6 +340,7 @@ def main() -> None:
         raise ValueError(f"--max-samples must be non-negative, got {args.max_samples}")
 
     config = load_config(args.config, root=ROOT)
+    config.setdefault("targets", {})["active"] = "all"
     params = target_config_from_config(config)
     manifest = resolve_path(args.manifest, root=ROOT)
 

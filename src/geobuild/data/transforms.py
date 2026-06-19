@@ -5,6 +5,7 @@ import torch
 
 
 TARGET_KEYS = ("mask", "boundary", "corner", "center")
+SPATIAL_TARGET_KEYS = TARGET_KEYS + ("instance",)
 
 
 def _validate_offset(offset: np.ndarray) -> None:
@@ -25,17 +26,21 @@ class EvalTransform:
             "image_id": str(sample["image_id"]),
         }
 
-        for key in TARGET_KEYS:
+        for key in SPATIAL_TARGET_KEYS:
+            if key not in sample:
+                continue
+
             target = np.asarray(sample[key], dtype=np.float32)
             target = target[None, :, :]
             transformed[key] = torch.from_numpy(np.ascontiguousarray(target)).float()
 
-        offset = np.asarray(sample["offset"], dtype=np.float32)
-        _validate_offset(offset)
+        if "offset" in sample:
+            offset = np.asarray(sample["offset"], dtype=np.float32)
+            _validate_offset(offset)
 
-        transformed["offset"] = torch.from_numpy(
-            np.ascontiguousarray(offset)
-        ).float()
+            transformed["offset"] = torch.from_numpy(
+                np.ascontiguousarray(offset)
+            ).float()
 
         return transformed
 
@@ -58,12 +63,14 @@ class SafeAugTransform:
             "image_id": str(sample["image_id"]),
         }
 
-        for key in TARGET_KEYS:
-            augmented[key] = np.asarray(sample[key])
+        for key in SPATIAL_TARGET_KEYS:
+            if key in sample:
+                augmented[key] = np.asarray(sample[key])
 
-        offset = np.asarray(sample["offset"], dtype=np.float32)
-        _validate_offset(offset)
-        augmented["offset"] = offset
+        if "offset" in sample:
+            offset = np.asarray(sample["offset"], dtype=np.float32)
+            _validate_offset(offset)
+            augmented["offset"] = offset
 
         if np.random.random() < self.hflip_p:
             augmented = self._horizontal_flip(augmented)
@@ -84,24 +91,28 @@ class SafeAugTransform:
     def _horizontal_flip(sample: dict[str, Any]) -> dict[str, Any]:
         sample["image"] = np.flip(sample["image"], axis=1)
 
-        for key in TARGET_KEYS:
-            sample[key] = np.flip(sample[key], axis=1)
+        for key in SPATIAL_TARGET_KEYS:
+            if key in sample:
+                sample[key] = np.flip(sample[key], axis=1)
 
-        offset = np.flip(sample["offset"], axis=2).copy()
-        offset[0] *= -1.0
-        sample["offset"] = offset
+        if "offset" in sample:
+            offset = np.flip(sample["offset"], axis=2).copy()
+            offset[0] *= -1.0
+            sample["offset"] = offset
         return sample
 
     @staticmethod
     def _vertical_flip(sample: dict[str, Any]) -> dict[str, Any]:
         sample["image"] = np.flip(sample["image"], axis=0)
 
-        for key in TARGET_KEYS:
-            sample[key] = np.flip(sample[key], axis=0)
+        for key in SPATIAL_TARGET_KEYS:
+            if key in sample:
+                sample[key] = np.flip(sample[key], axis=0)
 
-        offset = np.flip(sample["offset"], axis=1).copy()
-        offset[1] *= -1.0
-        sample["offset"] = offset
+        if "offset" in sample:
+            offset = np.flip(sample["offset"], axis=1).copy()
+            offset[1] *= -1.0
+            sample["offset"] = offset
         return sample
 
     @staticmethod
@@ -113,24 +124,26 @@ class SafeAugTransform:
 
         sample["image"] = np.rot90(sample["image"], k=k, axes=(0, 1))
 
-        for key in TARGET_KEYS:
-            sample[key] = np.rot90(sample[key], k=k, axes=(0, 1))
+        for key in SPATIAL_TARGET_KEYS:
+            if key in sample:
+                sample[key] = np.rot90(sample[key], k=k, axes=(0, 1))
 
-        offset = np.rot90(sample["offset"], k=k, axes=(1, 2)).copy()
-        x = offset[0].copy()
-        y = offset[1].copy()
+        if "offset" in sample:
+            offset = np.rot90(sample["offset"], k=k, axes=(1, 2)).copy()
+            x = offset[0].copy()
+            y = offset[1].copy()
 
-        if k == 1:
-            offset[0] = y
-            offset[1] = -x
-        elif k == 2:
-            offset[0] = -x
-            offset[1] = -y
-        elif k == 3:
-            offset[0] = -y
-            offset[1] = x
+            if k == 1:
+                offset[0] = y
+                offset[1] = -x
+            elif k == 2:
+                offset[0] = -x
+                offset[1] = -y
+            elif k == 3:
+                offset[0] = -y
+                offset[1] = x
 
-        sample["offset"] = offset
+            sample["offset"] = offset
         return sample
 
 

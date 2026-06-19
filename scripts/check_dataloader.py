@@ -23,6 +23,17 @@ from geobuild.data.records import ImageRecord
 from geobuild.utils.config import load_config, output_path_from_config, resolve_path
 
 
+TARGET_CHANNELS = {
+    "mask": 1,
+    "boundary": 1,
+    "corner": 1,
+    "center": 1,
+    "offset": 2,
+    "instance": 1,
+}
+TARGET_KEYS = tuple(TARGET_CHANNELS)
+
+
 def tensor_stats(name: str, value: torch.Tensor) -> None:
     print(
         f"{name}: shape={list(value.shape)} dtype={value.dtype} "
@@ -58,15 +69,17 @@ def assert_tensor(
 def assert_sample(sample: dict[str, Any]) -> None:
     assert_tensor("image", sample["image"], torch.float32, 3, ndim=3)
 
-    for key in ("mask", "boundary", "corner", "center"):
-        assert_tensor(key, sample[key], torch.float32, 1, ndim=3)
-
-    assert_tensor("offset", sample["offset"], torch.float32, 2, ndim=3)
+    for key, channels in TARGET_CHANNELS.items():
+        if key in sample:
+            assert_tensor(key, sample[key], torch.float32, channels, ndim=3)
 
     height = int(sample["image"].shape[-2])
     width = int(sample["image"].shape[-1])
 
-    for key in ("mask", "boundary", "corner", "center", "offset"):
+    for key in TARGET_KEYS:
+        if key not in sample:
+            continue
+
         actual_size = tuple(int(dim) for dim in sample[key].shape[-2:])
 
         if actual_size != (height, width):
@@ -109,10 +122,10 @@ def assert_padded_region_zero(
 def assert_batch(batch: dict[str, Any]) -> None:
     assert_tensor("batch.image", batch["image"], torch.float32, 3, ndim=4)
 
-    for key in ("mask", "boundary", "corner", "center"):
-        assert_tensor(f"batch.{key}", batch[key], torch.float32, 1, ndim=4)
+    for key, channels in TARGET_CHANNELS.items():
+        if key in batch:
+            assert_tensor(f"batch.{key}", batch[key], torch.float32, channels, ndim=4)
 
-    assert_tensor("batch.offset", batch["offset"], torch.float32, 2, ndim=4)
     assert_tensor("batch.valid_mask", batch["valid_mask"], torch.float32, 1, ndim=4)
 
     batch_size = int(batch["image"].shape[0])
@@ -152,7 +165,7 @@ def assert_batch(batch: dict[str, Any]) -> None:
                 f"got {actual_sum}"
             )
 
-    for key in ("image", "mask", "boundary", "corner", "center", "offset"):
+    for key in ("image", *[key for key in TARGET_KEYS if key in batch]):
         assert_padded_region_zero(key, batch[key], original_size)
 
 
@@ -218,7 +231,7 @@ def check_forced_mixed_size_batch(dataset: BuildingFootprintDataset) -> None:
 def print_sample(sample: dict[str, Any]) -> None:
     print("Sample")
 
-    for key in ("image", "mask", "boundary", "corner", "center", "offset"):
+    for key in ("image", *[key for key in TARGET_KEYS if key in sample]):
         tensor_stats(key, sample[key])
 
     print(f"image_id: {sample['image_id']}")
@@ -227,7 +240,7 @@ def print_sample(sample: dict[str, Any]) -> None:
 def print_batch(batch: dict[str, Any]) -> None:
     print("Batch")
 
-    for key in ("image", "mask", "boundary", "corner", "center", "offset"):
+    for key in ("image", *[key for key in TARGET_KEYS if key in batch]):
         print(f"{key}: {list(batch[key].shape)}")
 
     print(f"valid_mask: {list(batch['valid_mask'].shape)}")
@@ -251,6 +264,11 @@ def offset_magnitude(offset: torch.Tensor) -> np.ndarray:
     return np.sqrt(offset_array[0] ** 2 + offset_array[1] ** 2)
 
 
+def zeros_like_image_channel(sample: dict[str, Any]) -> np.ndarray:
+    height, width = sample["original_size"]
+    return np.zeros((int(height), int(width)), dtype=np.float32)
+
+
 def batch_sample(batch: dict[str, Any], index: int) -> dict[str, Any]:
     original_height, original_width = batch["original_size"][index]
     cropped = {
@@ -258,7 +276,7 @@ def batch_sample(batch: dict[str, Any], index: int) -> dict[str, Any]:
         "original_size": (int(original_height), int(original_width)),
     }
 
-    for key in ("image", "mask", "boundary", "corner", "center", "offset"):
+    for key in ("image", *[key for key in TARGET_KEYS if key in batch]):
         cropped[key] = batch[key][
             index,
             :,
@@ -370,33 +388,59 @@ def save_preview(
         f"image_id={sample['image_id']} original_size={(height, width)}"
     )
 
-    panels = [
-        titled_panel("Image", panel_image(to_hwc_image(sample["image"]), "rgb")),
-        titled_panel("Mask", panel_image(to_hw(sample["mask"]), "gray")),
-        titled_panel("Boundary", panel_image(to_hw(sample["boundary"]), "gray")),
-        titled_panel(
-            "Corner",
-            draw_polygon_lines(
-                panel_image(to_hw(sample["corner"]), "viridis"),
-                record,
-            ),
-        ),
-        titled_panel(
-            "Center",
-            draw_polygon_lines(
-                panel_image(to_hw(sample["center"]), "viridis"),
-                record,
-            ),
-        ),
-        titled_panel(
-            "Offset magnitude",
-            panel_image(offset_magnitude(sample["offset"]), "magma"),
-        ),
-    ]
+    panels = [titled_panel("Image", panel_image(to_hwc_image(sample["image"]), "rgb"))]
+
+    if "mask" in sample:
+        panels.append(titled_panel("Mask", panel_image(to_hw(sample["mask"]), "gray")))
+
+    if "boundary" in sample:
+        panels.append(
+            titled_panel("Boundary", panel_image(to_hw(sample["boundary"]), "gray"))
+        )
+
+    if "corner" in sample:
+        panels.append(
+            titled_panel(
+                "Corner",
+                draw_polygon_lines(
+                    panel_image(to_hw(sample["corner"]), "viridis"),
+                    record,
+                ),
+            )
+        )
+
+    if "center" in sample:
+        panels.append(
+            titled_panel(
+                "Center",
+                draw_polygon_lines(
+                    panel_image(to_hw(sample["center"]), "viridis"),
+                    record,
+                ),
+            )
+        )
+
+    if "offset" in sample:
+        panels.append(
+            titled_panel(
+                "Offset magnitude",
+                panel_image(offset_magnitude(sample["offset"]), "magma"),
+            )
+        )
+
+    if len(panels) == 1:
+        panels.append(
+            titled_panel(
+                "No active targets",
+                panel_image(zeros_like_image_channel(sample), "gray"),
+            )
+        )
 
     panel_width = max(panel.width for panel in panels)
     panel_height = max(panel.height for panel in panels)
-    grid = Image.new("RGB", (panel_width * 3, panel_height * 2), "white")
+    columns = 3
+    rows = (len(panels) + columns - 1) // columns
+    grid = Image.new("RGB", (panel_width * columns, panel_height * rows), "white")
 
     for index, panel in enumerate(panels):
         x = (index % 3) * panel_width

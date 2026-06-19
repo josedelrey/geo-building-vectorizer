@@ -5,6 +5,7 @@ import yaml
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
+ALLOWED_TARGET_NAMES = {"mask", "boundary", "corner", "center", "offset", "instance"}
 
 
 def resolve_path(path: str | Path, root: str | Path = PROJECT_ROOT) -> Path:
@@ -128,4 +129,64 @@ def target_config_from_config(config: dict[str, Any]) -> dict[str, Any]:
         "center_radius": int(center["radius"]),
         "center_sigma": float(center["sigma"]),
         "normalize_offset": bool(offset["normalize"]),
+        "active_targets": active_targets_from_config(config),
     }
+
+
+def active_targets_from_config(config: dict[str, Any]) -> set[str] | None:
+    targets = config.get("targets", {})
+    active = targets.get("active", "auto")
+
+    if active is None or str(active).lower() == "all":
+        return None
+
+    if isinstance(active, str):
+        active_name = active.lower()
+
+        if active_name == "auto":
+            model_heads = config.get("model", {}).get("heads")
+
+            if not isinstance(model_heads, dict):
+                return None
+
+            inferred = {
+                str(name)
+                for name, enabled in model_heads.items()
+                if bool(enabled)
+            }
+
+            if not inferred:
+                inferred = {"mask"}
+
+            unknown = inferred - ALLOWED_TARGET_NAMES
+
+            if unknown:
+                raise ValueError(
+                    f"Unknown target names in model.heads: {sorted(unknown)}"
+                )
+
+            return inferred
+
+        if active_name in ALLOWED_TARGET_NAMES:
+            return {active_name}
+
+        raise ValueError(
+            f"Unsupported targets.active value: {active!r}. "
+            "Use 'auto', 'all', or a list of target names."
+        )
+
+    if isinstance(active, list):
+        requested = {str(name) for name in active}
+        unknown = requested - ALLOWED_TARGET_NAMES
+
+        if unknown:
+            raise ValueError(f"Unknown targets.active names: {sorted(unknown)}")
+
+        if not requested:
+            raise ValueError("targets.active list cannot be empty")
+
+        return requested
+
+    raise TypeError(
+        "targets.active must be 'auto', 'all', a target name, or a list of names"
+    )
