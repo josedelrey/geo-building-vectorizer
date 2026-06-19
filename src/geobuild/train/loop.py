@@ -1,4 +1,5 @@
 from contextlib import nullcontext
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -6,12 +7,16 @@ import torch
 from torch import nn
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
+from tqdm.auto import tqdm
 
 from ..losses.multitask import MultiTaskLoss
 from ..metrics.segmentation import SegmentationMetrics
 from .checkpoint import save_checkpoint
 from .logger import CSVLogger
 from .preview import save_prediction_preview
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _move_batch_to_device(batch: dict[str, Any], device: torch.device) -> dict[str, Any]:
@@ -70,6 +75,12 @@ def _training_config(config: dict[str, Any]) -> dict[str, Any]:
     return config.get("train", config.get("training", {}))
 
 
+def _epoch_description(name: str, epoch: int | None, total_epochs: int | None) -> str:
+    if epoch is None or total_epochs is None:
+        return name
+    return f"{name} {epoch}/{total_epochs}"
+
+
 def train_one_epoch(
     model: nn.Module,
     dataloader: DataLoader,
@@ -78,6 +89,9 @@ def train_one_epoch(
     device: torch.device | str,
     scaler: Any | None = None,
     amp_enabled: bool = False,
+    epoch: int | None = None,
+    total_epochs: int | None = None,
+    show_progress: bool = True,
 ) -> dict[str, float]:
     device = torch.device(device)
     model.train()
@@ -85,7 +99,15 @@ def train_one_epoch(
     total_losses = []
     mask_losses = []
 
-    for batch in dataloader:
+    progress = tqdm(
+        dataloader,
+        desc=_epoch_description("train", epoch, total_epochs),
+        dynamic_ncols=True,
+        leave=False,
+        disable=not show_progress,
+    )
+
+    for batch in progress:
         batch = _move_batch_to_device(batch, device)
         images = batch["image"]
 
@@ -108,6 +130,11 @@ def train_one_epoch(
 
         total_losses.append(float(loss_dict["total"].detach().cpu()))
         mask_losses.append(float(loss_dict["mask"].detach().cpu()))
+        progress.set_postfix(
+            loss=f"{total_losses[-1]:.4f}",
+            mask=f"{mask_losses[-1]:.4f}",
+            lr=f"{_lr(optimizer):.2e}",
+        )
 
     return {
         "train_loss": _mean(total_losses),
@@ -125,6 +152,9 @@ def validate_one_epoch(
     preview_run_dir: str | Path | None = None,
     preview_epoch: int | None = None,
     preview_saved: bool = False,
+    epoch: int | None = None,
+    total_epochs: int | None = None,
+    show_progress: bool = True,
 ) -> dict[str, float | bool]:
     device = torch.device(device)
     model.eval()
@@ -134,7 +164,15 @@ def validate_one_epoch(
     metrics = SegmentationMetrics(threshold=threshold)
 
     with torch.no_grad():
-        for batch in dataloader:
+        progress = tqdm(
+            dataloader,
+            desc=_epoch_description("val", epoch, total_epochs),
+            dynamic_ncols=True,
+            leave=False,
+            disable=not show_progress,
+        )
+
+        for batch in progress:
             batch = _move_batch_to_device(batch, device)
             images = batch["image"]
 
@@ -145,6 +183,10 @@ def validate_one_epoch(
             total_losses.append(float(loss_dict["total"].detach().cpu()))
             mask_losses.append(float(loss_dict["mask"].detach().cpu()))
             metrics.update(outputs["mask"], batch["mask"], batch["valid_mask"])
+            progress.set_postfix(
+                loss=f"{total_losses[-1]:.4f}",
+                mask=f"{mask_losses[-1]:.4f}",
+            )
 
             if (
                 preview_run_dir is not None
@@ -212,7 +254,16 @@ def run_training(
     best_val_iou = float("-inf")
     history = []
 
+    LOGGER.info(
+        "Starting training: epochs=%d device=%s amp=%s run_dir=%s",
+        epochs,
+        device,
+        bool(scaler is not None and getattr(scaler, "is_enabled", lambda: False)()),
+        Path(run_dir),
+    )
+
     for epoch in range(1, epochs + 1):
+        LOGGER.info("Epoch %d/%d", epoch, epochs)
         train_metrics = train_one_epoch(
             model=model,
             dataloader=train_loader,
@@ -221,6 +272,8 @@ def run_training(
             device=device,
             scaler=scaler,
             amp_enabled=amp_enabled,
+            epoch=epoch,
+            total_epochs=epochs,
         )
 
         should_preview = (
@@ -238,8 +291,12 @@ def run_training(
             preview_run_dir=run_dir if should_preview else None,
             preview_epoch=epoch if should_preview else None,
             preview_saved=False,
+            epoch=epoch,
+            total_epochs=epochs,
         )
-        val_metrics.pop("preview_saved")
+        preview_saved = bool(val_metrics.pop("preview_saved"))
+
+        current_lr = _lr(optimizer)
 
         if scheduler is not None:
             scheduler.step()
@@ -248,7 +305,7 @@ def run_training(
             **train_metrics,
             **val_metrics,
             "epoch": epoch,
-            "lr": _lr(optimizer),
+            "lr": current_lr,
         }
         logger.log(row)
 
@@ -262,6 +319,24 @@ def run_training(
             val_iou=float(val_metrics["val_iou"]),
             scaler=scaler,
             save_every=save_every,
+        )
+        LOGGER.info(
+            (
+                "Epoch %d/%d complete: train_loss=%.4f train_mask_loss=%.4f "
+                "val_loss=%.4f val_mask_loss=%.4f val_iou=%.4f val_dice=%.4f "
+                "lr=%.2e best_val_iou=%.4f preview_saved=%s"
+            ),
+            epoch,
+            epochs,
+            float(row["train_loss"]),
+            float(row["train_mask_loss"]),
+            float(row["val_loss"]),
+            float(row["val_mask_loss"]),
+            float(row["val_iou"]),
+            float(row["val_dice"]),
+            current_lr,
+            best_val_iou,
+            preview_saved,
         )
         history.append({key: float(value) for key, value in row.items()})
 

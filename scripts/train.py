@@ -1,4 +1,5 @@
 import argparse
+import logging
 import random
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,9 @@ from geobuild.losses.multitask import MultiTaskLoss
 from geobuild.models.factory import build_model
 from geobuild.train.loop import run_training
 from geobuild.utils.config import load_config, output_path_from_config
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 def parse_args() -> argparse.Namespace:
@@ -138,6 +142,25 @@ def run_dir_from_config(config: dict[str, Any]) -> Path:
     )
 
 
+def configure_logging(run_dir: Path) -> None:
+    run_dir.mkdir(parents=True, exist_ok=True)
+    log_path = run_dir / "train.log"
+    formatter = logging.Formatter(
+        fmt="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    file_handler = logging.FileHandler(log_path, encoding="utf-8")
+    file_handler.setFormatter(formatter)
+
+    logging.basicConfig(
+        level=logging.INFO,
+        handlers=[console_handler, file_handler],
+        force=True,
+    )
+
+
 def save_config(config: dict[str, Any], run_dir: Path) -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
     config_path = run_dir / "config.yaml"
@@ -156,6 +179,7 @@ def main() -> None:
     set_seed(int(config.get("experiment", {}).get("seed", 42)))
     device = resolve_device(args.device)
     run_dir = run_dir_from_config(config)
+    configure_logging(run_dir)
     save_config(config, run_dir)
 
     train_dataset, val_dataset = build_datasets(config, args.overfit)
@@ -182,10 +206,10 @@ def main() -> None:
     scheduler = build_scheduler(optimizer, config)
     scaler = build_amp_scaler(config, device)
 
-    print(f"Run directory: {run_dir}")
-    print(f"Device: {device}")
-    print(f"Train samples: {len(train_dataset)}")
-    print(f"Val samples: {len(val_dataset)}")
+    LOGGER.info("Run directory: %s", run_dir)
+    LOGGER.info("Device: %s", device)
+    LOGGER.info("Train samples: %d", len(train_dataset))
+    LOGGER.info("Val samples: %d", len(val_dataset))
 
     history = run_training(
         model=model,
@@ -201,7 +225,7 @@ def main() -> None:
     )
 
     if history:
-        print(f"Finished epoch {int(history[-1]['epoch'])}")
+        LOGGER.info("Finished epoch %d", int(history[-1]["epoch"]))
 
 
 if __name__ == "__main__":
