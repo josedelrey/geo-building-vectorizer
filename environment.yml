@@ -12,3 +12,5 @@ dependencies:
   - pytorch>=2.0
   - shapely>=2.0
   - tqdm>=4.66
+  - pip:
+      - segmentation-models-pytorch>=0.3
