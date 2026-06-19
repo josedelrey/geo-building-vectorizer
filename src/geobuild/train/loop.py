@@ -232,6 +232,8 @@ def run_training(
     loss_fn: nn.Module | None = None,
     scheduler: Any | None = None,
     scaler: Any | None = None,
+    start_epoch: int = 1,
+    best_val_iou: float = float("-inf"),
 ) -> list[dict[str, float]]:
     device = torch.device(device)
     model.to(device)
@@ -251,18 +253,19 @@ def run_training(
     if loss_fn is None:
         loss_fn = MultiTaskLoss(config)
     logger = CSVLogger(Path(run_dir) / "metrics.csv")
-    best_val_iou = float("-inf")
+    best_val_iou = float(best_val_iou)
     history = []
 
     LOGGER.info(
-        "Starting training: epochs=%d device=%s amp=%s run_dir=%s",
+        "Starting training: start_epoch=%d epochs=%d device=%s amp=%s run_dir=%s",
+        int(start_epoch),
         epochs,
         device,
         bool(scaler is not None and getattr(scaler, "is_enabled", lambda: False)()),
         Path(run_dir),
     )
 
-    for epoch in range(1, epochs + 1):
+    for epoch in range(int(start_epoch), epochs + 1):
         LOGGER.info("Epoch %d/%d", epoch, epochs)
         train_metrics = train_one_epoch(
             model=model,
@@ -318,6 +321,7 @@ def run_training(
             config=config,
             val_iou=float(val_metrics["val_iou"]),
             scaler=scaler,
+            scheduler=scheduler,
             save_every=save_every,
         )
         LOGGER.info(

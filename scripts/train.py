@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 from geobuild.data.dataset import build_dataset, collate_samples
 from geobuild.losses.multitask import MultiTaskLoss
 from geobuild.models.factory import build_model
+from geobuild.train.checkpoint import load_checkpoint
 from geobuild.train.loop import run_training
 from geobuild.utils.config import load_config, output_path_from_config
 
@@ -27,6 +28,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--overfit", type=int, default=None)
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--epochs", type=int, default=None)
+    parser.add_argument("--resume", type=str, default=None)
     return parser.parse_args()
 
 
@@ -161,6 +163,18 @@ def configure_logging(run_dir: Path) -> None:
     )
 
 
+def resolve_resume_checkpoint(resume: str | None, run_dir: Path) -> Path | None:
+    if resume is None:
+        return None
+
+    checkpoint_path = run_dir / "checkpoints" / "last.pt" if resume == "auto" else Path(resume)
+
+    if not checkpoint_path.exists():
+        raise FileNotFoundError(f"Resume checkpoint does not exist: {checkpoint_path}")
+
+    return checkpoint_path
+
+
 def save_config(config: dict[str, Any], run_dir: Path) -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
     config_path = run_dir / "config.yaml"
@@ -181,6 +195,7 @@ def main() -> None:
     run_dir = run_dir_from_config(config)
     configure_logging(run_dir)
     save_config(config, run_dir)
+    resume_checkpoint = resolve_resume_checkpoint(args.resume, run_dir)
 
     train_dataset, val_dataset = build_datasets(config, args.overfit)
     train_loader = build_loader(
@@ -206,6 +221,44 @@ def main() -> None:
     scheduler = build_scheduler(optimizer, config)
     scaler = build_amp_scaler(config, device)
 
+    start_epoch = 1
+    best_val_iou = float("-inf")
+
+    if resume_checkpoint is not None:
+        start_epoch, best_val_iou, checkpoint = load_checkpoint(
+            resume_checkpoint,
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            scaler=scaler,
+            device=device,
+        )
+        checkpoint_epoch = int(checkpoint["epoch"])
+        total_epochs = int(config.get("train", {}).get("epochs", 1))
+        LOGGER.info(
+            (
+                "Resumed from checkpoint: path=%s checkpoint_epoch=%d "
+                "next_epoch=%d configured_epochs=%d best_val_iou=%.4f"
+            ),
+            resume_checkpoint,
+            checkpoint_epoch,
+            start_epoch,
+            total_epochs,
+            best_val_iou,
+        )
+
+        if start_epoch > total_epochs:
+            LOGGER.info(
+                (
+                    "Checkpoint is already at or beyond configured training length: "
+                    "checkpoint_epoch=%d next_epoch=%d configured_epochs=%d. Exiting."
+                ),
+                checkpoint_epoch,
+                start_epoch,
+                total_epochs,
+            )
+            return
+
     LOGGER.info("Run directory: %s", run_dir)
     LOGGER.info("Device: %s", device)
     LOGGER.info("Train samples: %d", len(train_dataset))
@@ -222,6 +275,8 @@ def main() -> None:
         loss_fn=loss_fn,
         scheduler=scheduler,
         scaler=scaler,
+        start_epoch=start_epoch,
+        best_val_iou=best_val_iou,
     )
 
     if history:
