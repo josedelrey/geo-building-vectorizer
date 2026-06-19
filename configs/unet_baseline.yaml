@@ -28,7 +28,7 @@ splits:
 
 output:
   root: outputs
-  run_dir: outputs/unet_resnet34_mask
+  run_dir: runs/unet_resnet34_mask
   manifest_dir: data/processed/manifests
   debug_dir: debug
   dataloader_check: check_dataloader/dataloader_{split}_000.png

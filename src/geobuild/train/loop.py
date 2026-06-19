@@ -187,6 +187,7 @@ def run_training(
     config: dict[str, Any],
     run_dir: str | Path,
     device: torch.device | str,
+    loss_fn: nn.Module | None = None,
     scheduler: Any | None = None,
     scaler: Any | None = None,
 ) -> list[dict[str, float]]:
@@ -205,7 +206,8 @@ def run_training(
     if scaler is None:
         scaler = _build_grad_scaler(device, amp_enabled)
 
-    loss_fn = MultiTaskLoss(config)
+    if loss_fn is None:
+        loss_fn = MultiTaskLoss(config)
     logger = CSVLogger(Path(run_dir) / "metrics.csv")
     best_val_iou = float("-inf")
     history = []
