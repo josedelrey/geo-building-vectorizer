@@ -1,0 +1,90 @@
+experiment:
+  name: unet_resnet34_mask
+  seed: 42
+
+dataset:
+  name: whu_mix_vector
+
+splits:
+  train:
+    image_dir: data/raw/whu_mix_vector/train/image
+    annotation_file: data/raw/whu_mix_vector/train/train.json
+    manifest: data/processed/manifests/train.jsonl
+
+  val:
+    image_dir: data/raw/whu_mix_vector/val/image
+    annotation_file: data/raw/whu_mix_vector/val/val.json
+    manifest: data/processed/manifests/val.jsonl
+
+  test:
+    image_dir: data/raw/whu_mix_vector/test/image
+    annotation_file: data/raw/whu_mix_vector/test/test.json
+    manifest: data/processed/manifests/test.jsonl
+
+  test2:
+    image_dir: data/raw/whu_mix_vector/test2/image
+    annotation_file: data/raw/whu_mix_vector/test2/test2.json
+    manifest: data/processed/manifests/test2.jsonl
+
+output:
+  root: outputs
+  run_dir: outputs/unet_resnet34_mask
+  manifest_dir: data/processed/manifests
+  debug_dir: debug
+  dataloader_check: check_dataloader/dataloader_{split}_000.png
+
+targets:
+  boundary_width: 3
+
+  corner:
+    radius: 4
+    sigma: 2.0
+    source: simplified
+    simplify_tolerance: 1.0
+    cumulative_turn_angle_degrees: 25.0
+
+  center:
+    radius: 5
+    sigma: 2.5
+
+  offset:
+    normalize: true
+
+loader:
+  batch_size: 4
+  shuffle: true
+  num_workers: 0
+  pin_memory: true
+
+model:
+  name: unet
+  encoder_name: resnet34
+  encoder_weights: imagenet
+  in_channels: 3
+  classes: 1
+  heads:
+    mask: true
+    boundary: false
+    corner: false
+    center: false
+    offset: false
+
+train:
+  epochs: 50
+  optimizer: AdamW
+  lr: 0.0001
+  weight_decay: 0.0001
+  amp: true
+  preview_every: 1
+  save_every: 0
+
+loss:
+  mask_weight: 1.0
+  boundary_weight: 0.0
+  corner_weight: 0.0
+  center_weight: 0.0
+  offset_weight: 0.0
+  mask:
+    bce_weight: 1.0
+    dice_weight: 1.0
+    eps: 0.000001
