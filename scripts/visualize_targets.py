@@ -13,10 +13,6 @@ import numpy as np
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
 
 from geobuild.data.rasterize import TargetBundle, rasterize_record, summarize_targets
 from geobuild.data.records import ImageRecord

@@ -1,6 +1,5 @@
 import argparse
 import json
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterator
@@ -9,10 +8,6 @@ import numpy as np
 from tqdm import tqdm
 
 ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
 
 from geobuild.data.rasterize import TargetBundle, rasterize_record, summarize_targets
 from geobuild.data.records import ImageRecord
@@ -377,7 +372,7 @@ def main() -> None:
     print_summary(manifest, totals, warning_examples, error_examples)
 
     if args.fail_on_error and totals.records_with_errors > 0:
-        sys.exit(1)
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

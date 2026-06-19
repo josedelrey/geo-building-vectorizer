@@ -31,7 +31,7 @@ output:
   run_dir: runs/e1_unet_resnet34_noaug
   manifest_dir: data/processed/manifests
   debug_dir: debug
-  dataloader_check: check_dataloader/dataloader_{split}.png
+  dataloader_check: check_dataloader/e1_unet_resnet34_noaug/dataloader_{split}.png
 
 targets:
   active: auto
