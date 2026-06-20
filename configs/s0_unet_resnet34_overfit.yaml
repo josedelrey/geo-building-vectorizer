@@ -39,21 +39,6 @@ targets:
     enabled: true
     root: data/processed/target_cache
     targets: [mask]
-  boundary_width: 3
-
-  corner:
-    radius: 4
-    sigma: 2.0
-    source: simplified
-    simplify_tolerance: 1.0
-    cumulative_turn_angle_degrees: 25.0
-
-  center:
-    radius: 5
-    sigma: 2.5
-
-  offset:
-    normalize: true
 
 loader:
   batch_size: 1
