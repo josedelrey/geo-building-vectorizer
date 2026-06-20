@@ -1,6 +1,7 @@
 import argparse
 import logging
 import random
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +17,11 @@ from geobuild.losses.multitask import MultiTaskLoss
 from geobuild.models.factory import build_model
 from geobuild.train.checkpoint import load_checkpoint
 from geobuild.train.loop import run_training
-from geobuild.utils.config import load_config, output_path_from_config
+from geobuild.utils.config import (
+    load_config,
+    output_path_from_config,
+    output_root_from_config,
+)
 
 
 LOGGER = logging.getLogger(__name__)
@@ -32,7 +37,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--overwrite",
         action="store_true",
-        help="Replace an existing metrics.csv when starting a non-resumed run.",
+        help="Replace an existing run directory when starting a non-resumed run.",
     )
     return parser.parse_args()
 
@@ -180,22 +185,52 @@ def resolve_resume_checkpoint(resume: str | None, run_dir: Path) -> Path | None:
     return checkpoint_path
 
 
-def prepare_metrics_file(run_dir: Path, resume: str | None, overwrite: bool) -> None:
-    metrics_path = run_dir / "metrics.csv"
+def _is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+    except ValueError:
+        return False
+    return True
+
+
+def prepare_run_dir(
+    run_dir: Path,
+    output_root: Path,
+    resume: str | None,
+    overwrite: bool,
+) -> None:
+    resolved_run_dir = run_dir.resolve()
+    resolved_output_root = output_root.resolve()
 
     if resume is not None:
         return
 
-    if not metrics_path.exists():
+    if not run_dir.exists():
+        return
+
+    if not run_dir.is_dir():
+        raise SystemExit(f"Error: run path exists but is not a directory: {run_dir}")
+
+    has_existing_files = any(run_dir.iterdir())
+
+    if not has_existing_files:
         return
 
     if not overwrite:
         raise SystemExit(
-            f"Error: metrics.csv already exists at {metrics_path}. "
-            "Use --resume to continue the run or --overwrite to replace metrics.csv."
+            f"Error: run directory already exists and is not empty: {run_dir}. "
+            "Use --resume to continue the run or --overwrite to replace the run directory."
         )
 
-    metrics_path.unlink()
+    if (
+        resolved_run_dir == resolved_output_root
+        or not _is_relative_to(resolved_run_dir, resolved_output_root)
+    ):
+        raise SystemExit(
+            f"Error: refusing to overwrite run directory outside output root: {run_dir}"
+        )
+
+    shutil.rmtree(run_dir)
 
 
 def save_config(config: dict[str, Any], run_dir: Path) -> None:
@@ -216,7 +251,12 @@ def main() -> None:
     set_seed(int(config.get("experiment", {}).get("seed", 42)))
     device = resolve_device(args.device)
     run_dir = run_dir_from_config(config)
-    prepare_metrics_file(run_dir, args.resume, bool(args.overwrite))
+    prepare_run_dir(
+        run_dir=run_dir,
+        output_root=output_root_from_config(config, root=ROOT),
+        resume=args.resume,
+        overwrite=bool(args.overwrite),
+    )
     configure_logging(run_dir)
     save_config(config, run_dir)
     resume_checkpoint = resolve_resume_checkpoint(args.resume, run_dir)
