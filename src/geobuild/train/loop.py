@@ -304,14 +304,6 @@ def run_training(
         if scheduler is not None:
             scheduler.step()
 
-        row = {
-            **train_metrics,
-            **val_metrics,
-            "epoch": epoch,
-            "lr": current_lr,
-        }
-        logger.log(row)
-
         best_val_iou = save_checkpoint(
             output_dir=Path(run_dir) / "checkpoints",
             epoch=epoch,
@@ -324,6 +316,16 @@ def run_training(
             scheduler=scheduler,
             save_every=save_every,
         )
+
+        row = {
+            **train_metrics,
+            **val_metrics,
+            "epoch": epoch,
+            "lr": current_lr,
+            "best_val_iou": best_val_iou,
+        }
+        logger.log(row)
+
         LOGGER.info(
             (
                 "Epoch %d/%d complete: train_loss=%.4f train_mask_loss=%.4f "

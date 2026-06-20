@@ -15,14 +15,41 @@ class CSVLogger:
         "val_precision",
         "val_recall",
         "lr",
+        "best_val_iou",
     ]
 
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
+    def _ensure_columns(self) -> bool:
+        if not self.path.exists() or self.path.stat().st_size == 0:
+            return True
+
+        with self.path.open("r", newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            existing_columns = reader.fieldnames
+
+            if existing_columns is None:
+                return True
+
+            if all(column in existing_columns for column in self.columns):
+                return False
+
+            rows = list(reader)
+
+        with self.path.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=self.columns)
+            writer.writeheader()
+            for row in rows:
+                writer.writerow(
+                    {column: row.get(column, "") for column in self.columns}
+                )
+
+        return False
+
     def log(self, metrics: dict[str, Any]) -> None:
-        write_header = not self.path.exists() or self.path.stat().st_size == 0
+        write_header = self._ensure_columns()
         row = {column: metrics.get(column, "") for column in self.columns}
 
         with self.path.open("a", newline="", encoding="utf-8") as f:
