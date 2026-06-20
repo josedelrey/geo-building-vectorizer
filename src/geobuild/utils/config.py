@@ -92,7 +92,11 @@ def manifest_path_from_config(
     split: str,
     root: str | Path = PROJECT_ROOT,
 ) -> Path:
-    split_config(config, split)
+    split_settings = split_config(config, split)
+
+    if "manifest" in split_settings:
+        return resolve_path(split_settings["manifest"], root)
+
     return manifest_dir_from_config(config, root) / f"{split}.jsonl"
 
 

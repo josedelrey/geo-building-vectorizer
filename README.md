@@ -22,4 +22,4 @@ Run project scripts through that environment:
 conda run -n cv python scripts/check_dataloader.py --config configs/data.yaml --split train
 ```
 
-For pip-based environments, `requirements.txt` mirrors the direct runtime dependencies.
+For pip-based environments, use the direct runtime dependencies listed in `pyproject.toml`.
