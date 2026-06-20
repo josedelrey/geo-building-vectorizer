@@ -29,6 +29,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--epochs", type=int, default=None)
     parser.add_argument("--resume", type=str, default=None)
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace an existing metrics.csv when starting a non-resumed run.",
+    )
     return parser.parse_args()
 
 
@@ -175,6 +180,24 @@ def resolve_resume_checkpoint(resume: str | None, run_dir: Path) -> Path | None:
     return checkpoint_path
 
 
+def prepare_metrics_file(run_dir: Path, resume: str | None, overwrite: bool) -> None:
+    metrics_path = run_dir / "metrics.csv"
+
+    if resume is not None:
+        return
+
+    if not metrics_path.exists():
+        return
+
+    if not overwrite:
+        raise SystemExit(
+            f"Error: metrics.csv already exists at {metrics_path}. "
+            "Use --resume to continue the run or --overwrite to replace metrics.csv."
+        )
+
+    metrics_path.unlink()
+
+
 def save_config(config: dict[str, Any], run_dir: Path) -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
     config_path = run_dir / "config.yaml"
@@ -193,6 +216,7 @@ def main() -> None:
     set_seed(int(config.get("experiment", {}).get("seed", 42)))
     device = resolve_device(args.device)
     run_dir = run_dir_from_config(config)
+    prepare_metrics_file(run_dir, args.resume, bool(args.overwrite))
     configure_logging(run_dir)
     save_config(config, run_dir)
     resume_checkpoint = resolve_resume_checkpoint(args.resume, run_dir)
