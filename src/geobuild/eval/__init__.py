@@ -30,6 +30,11 @@ from geobuild.eval.raster_metrics import (
     load_prediction_records,
     rasterize_gt_mask,
 )
+from geobuild.eval.tuning import (
+    TuningResult,
+    TuningTrial,
+    tune_vectorizer,
+)
 from geobuild.eval.vector_metrics import (
     EvaluatedPredictedPolygon,
     VectorSplitMetrics,
@@ -45,6 +50,8 @@ __all__ = [
     "ObjectMatch",
     "RasterImageMetrics",
     "RasterSplitMetrics",
+    "TuningResult",
+    "TuningTrial",
     "EvaluatedPredictedPolygon",
     "VectorSplitMetrics",
     "aggregate_raster_metrics",
@@ -63,5 +70,6 @@ __all__ = [
     "match_image_predictions",
     "polygon_iou",
     "rasterize_gt_mask",
+    "tune_vectorizer",
     "write_comparison_tables",
 ]
