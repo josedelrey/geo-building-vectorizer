@@ -1,0 +1,6 @@
+vectorizer:
+  name: mask_cc
+  required_outputs: [mask]
+  threshold: 0.5
+  min_area: 16
+  simplify_tolerance: 1.0
