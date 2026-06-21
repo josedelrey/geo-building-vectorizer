@@ -2,6 +2,11 @@ from geobuild.eval.boundary_metrics import (
     BoundaryMetrics,
     boundary_f1_from_masks,
 )
+from geobuild.eval.compare import (
+    build_table,
+    load_summary_metrics,
+    write_comparison_tables,
+)
 from geobuild.eval.ground_truth import (
     GroundTruthPolygon,
     load_ground_truth_polygons,
@@ -44,6 +49,7 @@ __all__ = [
     "VectorSplitMetrics",
     "aggregate_raster_metrics",
     "boundary_f1_from_masks",
+    "build_table",
     "compute_vector_metrics",
     "compute_ap50_ap75",
     "compute_split_average_precision",
@@ -53,7 +59,9 @@ __all__ = [
     "load_image_records",
     "load_prediction_records",
     "load_predicted_polygons",
+    "load_summary_metrics",
     "match_image_predictions",
     "polygon_iou",
     "rasterize_gt_mask",
+    "write_comparison_tables",
 ]
