@@ -6,8 +6,10 @@ from geobuild.vectorize.io import (
     validate_required_outputs,
 )
 from geobuild.vectorize.registry import build_vectorizer, register_vectorizer
+from geobuild.vectorize.mask_cc import MaskCCVectorizer
 
 __all__ = [
+    "MaskCCVectorizer",
     "PredictionBundle",
     "PredictedPolygon",
     "Vectorizer",

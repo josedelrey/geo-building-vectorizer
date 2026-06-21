@@ -21,6 +21,7 @@ def register_vectorizer(
 
 
 def build_vectorizer(config: dict[str, Any]) -> Vectorizer:
+    _register_builtin_vectorizers()
     vectorizer_config = config.get("vectorizer", config)
     name = _normalize_name(vectorizer_config.get("name"))
 
@@ -52,3 +53,7 @@ def _normalize_name(name: Any) -> str:
         raise ValueError("Vectorizer name cannot be empty")
 
     return normalized
+
+
+def _register_builtin_vectorizers() -> None:
+    import geobuild.vectorize.mask_cc  # noqa: F401

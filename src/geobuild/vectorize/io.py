@@ -8,6 +8,14 @@ from shapely.geometry import mapping
 from geobuild.vectorize.base import PredictionBundle, PredictedPolygon, Vectorizer
 
 
+PROBABILITY_OUTPUT_ALIASES = {
+    "mask": "mask_prob",
+    "boundary": "boundary_prob",
+    "corner": "corner_prob",
+    "center": "center_prob",
+}
+
+
 def load_prediction_bundle(
     record_from_predictions_jsonl: dict[str, Any],
 ) -> PredictionBundle:
@@ -23,6 +31,8 @@ def load_prediction_bundle(
             for name in data.files
         }
 
+    _add_probability_aliases(arrays)
+
     return PredictionBundle(
         image_id=str(record["image_id"]),
         height=int(record["height"]),
@@ -30,6 +40,12 @@ def load_prediction_bundle(
         arrays=arrays,
         metadata=record,
     )
+
+
+def _add_probability_aliases(arrays: dict[str, np.ndarray]) -> None:
+    for source_name, alias_name in PROBABILITY_OUTPUT_ALIASES.items():
+        if alias_name not in arrays and source_name in arrays:
+            arrays[alias_name] = arrays[source_name]
 
 
 def validate_required_outputs(
