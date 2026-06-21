@@ -25,6 +25,12 @@ from geobuild.eval.raster_metrics import (
     load_prediction_records,
     rasterize_gt_mask,
 )
+from geobuild.eval.vector_metrics import (
+    EvaluatedPredictedPolygon,
+    VectorSplitMetrics,
+    compute_vector_metrics,
+    load_predicted_polygons,
+)
 
 __all__ = [
     "AveragePrecisionResult",
@@ -34,8 +40,11 @@ __all__ = [
     "ObjectMatch",
     "RasterImageMetrics",
     "RasterSplitMetrics",
+    "EvaluatedPredictedPolygon",
+    "VectorSplitMetrics",
     "aggregate_raster_metrics",
     "boundary_f1_from_masks",
+    "compute_vector_metrics",
     "compute_ap50_ap75",
     "compute_split_average_precision",
     "evaluate_raster_image",
@@ -43,6 +52,7 @@ __all__ = [
     "load_ground_truth_polygons",
     "load_image_records",
     "load_prediction_records",
+    "load_predicted_polygons",
     "match_image_predictions",
     "polygon_iou",
     "rasterize_gt_mask",

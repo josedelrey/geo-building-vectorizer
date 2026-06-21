@@ -67,6 +67,9 @@ class AveragePrecisionResult:
 
 
 def polygon_iou(a: Any, b: Any) -> float:
+    if not isinstance(a, BaseGeometry) or not isinstance(b, BaseGeometry):
+        return 0.0
+
     a = repair_geometry(a)
     b = repair_geometry(b)
 
