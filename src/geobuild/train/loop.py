@@ -107,34 +107,37 @@ def train_one_epoch(
         disable=not show_progress,
     )
 
-    for batch in progress:
-        batch = _move_batch_to_device(batch, device)
-        images = batch["image"]
+    try:
+        for batch in progress:
+            batch = _move_batch_to_device(batch, device)
+            images = batch["image"]
 
-        optimizer.zero_grad(set_to_none=True)
+            optimizer.zero_grad(set_to_none=True)
 
-        with _autocast_context(device, amp_enabled):
-            outputs = model(images)
-            loss_dict = loss_fn(outputs, batch)
-            total_loss = loss_dict["total"]
+            with _autocast_context(device, amp_enabled):
+                outputs = model(images)
+                loss_dict = loss_fn(outputs, batch)
+                total_loss = loss_dict["total"]
 
-        scaler_is_enabled = bool(getattr(scaler, "is_enabled", lambda: True)())
+            scaler_is_enabled = bool(getattr(scaler, "is_enabled", lambda: True)())
 
-        if scaler is not None and scaler_is_enabled:
-            scaler.scale(total_loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
-        else:
-            total_loss.backward()
-            optimizer.step()
+            if scaler is not None and scaler_is_enabled:
+                scaler.scale(total_loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                total_loss.backward()
+                optimizer.step()
 
-        total_losses.append(float(loss_dict["total"].detach().cpu()))
-        mask_losses.append(float(loss_dict["mask"].detach().cpu()))
-        progress.set_postfix(
-            loss=f"{total_losses[-1]:.4f}",
-            mask=f"{mask_losses[-1]:.4f}",
-            lr=f"{_lr(optimizer):.2e}",
-        )
+            total_losses.append(float(loss_dict["total"].detach().cpu()))
+            mask_losses.append(float(loss_dict["mask"].detach().cpu()))
+            progress.set_postfix(
+                loss=f"{total_losses[-1]:.4f}",
+                mask=f"{mask_losses[-1]:.4f}",
+                lr=f"{_lr(optimizer):.2e}",
+            )
+    finally:
+        progress.close()
 
     return {
         "train_loss": _mean(total_losses),
@@ -172,41 +175,44 @@ def validate_one_epoch(
             disable=not show_progress,
         )
 
-        for batch in progress:
-            batch = _move_batch_to_device(batch, device)
-            images = batch["image"]
+        try:
+            for batch in progress:
+                batch = _move_batch_to_device(batch, device)
+                images = batch["image"]
 
-            with _autocast_context(device, amp_enabled):
-                outputs = model(images)
-                loss_dict = loss_fn(outputs, batch)
+                with _autocast_context(device, amp_enabled):
+                    outputs = model(images)
+                    loss_dict = loss_fn(outputs, batch)
 
-            total_losses.append(float(loss_dict["total"].detach().cpu()))
-            mask_losses.append(float(loss_dict["mask"].detach().cpu()))
-            metrics.update(outputs["mask"], batch["mask"], batch["valid_mask"])
-            progress.set_postfix(
-                loss=f"{total_losses[-1]:.4f}",
-                mask=f"{mask_losses[-1]:.4f}",
-            )
-
-            if (
-                preview_run_dir is not None
-                and preview_epoch is not None
-                and not preview_saved
-            ):
-                cpu_batch = _move_batch_to_device(batch, torch.device("cpu"))
-                cpu_outputs = {
-                    key: value.detach().cpu()
-                    for key, value in outputs.items()
-                    if isinstance(value, torch.Tensor)
-                }
-                save_prediction_preview(
-                    cpu_batch,
-                    cpu_outputs,
-                    preview_run_dir,
-                    epoch=preview_epoch,
-                    threshold=threshold,
+                total_losses.append(float(loss_dict["total"].detach().cpu()))
+                mask_losses.append(float(loss_dict["mask"].detach().cpu()))
+                metrics.update(outputs["mask"], batch["mask"], batch["valid_mask"])
+                progress.set_postfix(
+                    loss=f"{total_losses[-1]:.4f}",
+                    mask=f"{mask_losses[-1]:.4f}",
                 )
-                preview_saved = True
+
+                if (
+                    preview_run_dir is not None
+                    and preview_epoch is not None
+                    and not preview_saved
+                ):
+                    cpu_batch = _move_batch_to_device(batch, torch.device("cpu"))
+                    cpu_outputs = {
+                        key: value.detach().cpu()
+                        for key, value in outputs.items()
+                        if isinstance(value, torch.Tensor)
+                    }
+                    save_prediction_preview(
+                        cpu_batch,
+                        cpu_outputs,
+                        preview_run_dir,
+                        epoch=preview_epoch,
+                        threshold=threshold,
+                    )
+                    preview_saved = True
+        finally:
+            progress.close()
 
     metric_values = metrics.compute()
 
@@ -265,85 +271,97 @@ def run_training(
         Path(run_dir),
     )
 
-    for epoch in range(int(start_epoch), epochs + 1):
-        LOGGER.info("Epoch %d/%d", epoch, epochs)
-        train_metrics = train_one_epoch(
-            model=model,
-            dataloader=train_loader,
-            optimizer=optimizer,
-            loss_fn=loss_fn,
-            device=device,
-            scaler=scaler,
-            amp_enabled=amp_enabled,
-            epoch=epoch,
-            total_epochs=epochs,
+    try:
+        for epoch in range(int(start_epoch), epochs + 1):
+            LOGGER.info("Epoch %d/%d", epoch, epochs)
+            train_metrics = train_one_epoch(
+                model=model,
+                dataloader=train_loader,
+                optimizer=optimizer,
+                loss_fn=loss_fn,
+                device=device,
+                scaler=scaler,
+                amp_enabled=amp_enabled,
+                epoch=epoch,
+                total_epochs=epochs,
+            )
+
+            should_preview = (
+                preview_every is not None
+                and int(preview_every) > 0
+                and epoch % int(preview_every) == 0
+            )
+            val_metrics = validate_one_epoch(
+                model=model,
+                dataloader=val_loader,
+                loss_fn=loss_fn,
+                device=device,
+                threshold=threshold,
+                amp_enabled=amp_enabled,
+                preview_run_dir=run_dir if should_preview else None,
+                preview_epoch=epoch if should_preview else None,
+                preview_saved=False,
+                epoch=epoch,
+                total_epochs=epochs,
+            )
+            preview_saved = bool(val_metrics.pop("preview_saved"))
+
+            current_lr = _lr(optimizer)
+
+            if scheduler is not None:
+                scheduler.step()
+
+            best_val_iou = save_checkpoint(
+                output_dir=Path(run_dir) / "checkpoints",
+                epoch=epoch,
+                model=model,
+                optimizer=optimizer,
+                best_val_iou=best_val_iou,
+                config=config,
+                val_iou=float(val_metrics["val_iou"]),
+                scaler=scaler,
+                scheduler=scheduler,
+                save_every=save_every,
+            )
+
+            row = {
+                **train_metrics,
+                **val_metrics,
+                "epoch": epoch,
+                "lr": current_lr,
+                "best_val_iou": best_val_iou,
+            }
+            logger.log(row)
+
+            LOGGER.info(
+                (
+                    "Epoch %d/%d complete: train_loss=%.4f train_mask_loss=%.4f "
+                    "val_loss=%.4f val_mask_loss=%.4f val_iou=%.4f val_dice=%.4f "
+                    "lr=%.2e best_val_iou=%.4f preview_saved=%s"
+                ),
+                epoch,
+                epochs,
+                float(row["train_loss"]),
+                float(row["train_mask_loss"]),
+                float(row["val_loss"]),
+                float(row["val_mask_loss"]),
+                float(row["val_iou"]),
+                float(row["val_dice"]),
+                current_lr,
+                best_val_iou,
+                preview_saved,
+            )
+            history.append({key: float(value) for key, value in row.items()})
+    except KeyboardInterrupt:
+        last_completed_epoch = (
+            int(history[-1]["epoch"]) if history else int(start_epoch) - 1
         )
-
-        should_preview = (
-            preview_every is not None
-            and int(preview_every) > 0
-            and epoch % int(preview_every) == 0
-        )
-        val_metrics = validate_one_epoch(
-            model=model,
-            dataloader=val_loader,
-            loss_fn=loss_fn,
-            device=device,
-            threshold=threshold,
-            amp_enabled=amp_enabled,
-            preview_run_dir=run_dir if should_preview else None,
-            preview_epoch=epoch if should_preview else None,
-            preview_saved=False,
-            epoch=epoch,
-            total_epochs=epochs,
-        )
-        preview_saved = bool(val_metrics.pop("preview_saved"))
-
-        current_lr = _lr(optimizer)
-
-        if scheduler is not None:
-            scheduler.step()
-
-        best_val_iou = save_checkpoint(
-            output_dir=Path(run_dir) / "checkpoints",
-            epoch=epoch,
-            model=model,
-            optimizer=optimizer,
-            best_val_iou=best_val_iou,
-            config=config,
-            val_iou=float(val_metrics["val_iou"]),
-            scaler=scaler,
-            scheduler=scheduler,
-            save_every=save_every,
-        )
-
-        row = {
-            **train_metrics,
-            **val_metrics,
-            "epoch": epoch,
-            "lr": current_lr,
-            "best_val_iou": best_val_iou,
-        }
-        logger.log(row)
-
         LOGGER.info(
             (
-                "Epoch %d/%d complete: train_loss=%.4f train_mask_loss=%.4f "
-                "val_loss=%.4f val_mask_loss=%.4f val_iou=%.4f val_dice=%.4f "
-                "lr=%.2e best_val_iou=%.4f preview_saved=%s"
+                "Training interrupted by user. Last completed epoch: %d. "
+                "Resume from the last checkpoint with --resume auto."
             ),
-            epoch,
-            epochs,
-            float(row["train_loss"]),
-            float(row["train_mask_loss"]),
-            float(row["val_loss"]),
-            float(row["val_mask_loss"]),
-            float(row["val_iou"]),
-            float(row["val_dice"]),
-            current_lr,
-            best_val_iou,
-            preview_saved,
+            last_completed_epoch,
         )
-        history.append({key: float(value) for key, value in row.items()})
 
     return history
