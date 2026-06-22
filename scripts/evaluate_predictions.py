@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from tqdm import tqdm
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -118,7 +119,11 @@ def _per_image_rows(
 ) -> list[dict[str, Any]]:
     rows = []
 
-    for raster in raster_per_image:
+    for raster in tqdm(
+        raster_per_image,
+        desc="Evaluating images",
+        unit="image",
+    ):
         image_id = str(raster.image_id)
         gt_polygons = gt_by_image.get(image_id, [])
         pred_polygons = pred_by_image.get(image_id, [])
